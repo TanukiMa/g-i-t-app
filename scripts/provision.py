@@ -23,7 +23,13 @@ DEFAULT_SITE_OPTIONS = {
     "headers": [
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ],
-    "editors": ["html_sanitize"],
+    # Keep only the page body and drop noise that changes without meaning
+    # (scripts, inline styles, embeds), so snapshots stay small and diffs readable.
+    "editors": [
+        {"css_select": "body"},
+        {"css_remove": "script, style, noscript, iframe"},
+        "html_sanitize",
+    ],
 }
 
 

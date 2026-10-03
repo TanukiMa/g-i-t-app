@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import time
 import subprocess
 import argparse
 from urllib.parse import urljoin, urlparse
@@ -19,6 +20,15 @@ except ImportError:
 
 # Override without code changes when Google retires a model for new users.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+# Overload (503) and rate limits (429) are usually short-lived: retry with backoff.
+GEMINI_TRANSIENT_CODES = (429, 500, 503, 504)
+GEMINI_RETRY_WAITS = [10, 30, 60]
+
+# Stored in updates.summary when no summary could be produced. SUMMARY_FAILED rows are retried
+# by backfill_summaries(); SUMMARY_UNAVAILABLE marks rows whose diff can no longer be read.
+SUMMARY_FAILED = "AI要約を生成できませんでした。"
+SUMMARY_UNAVAILABLE = "差分を取得できなかったため要約できません。"
+BACKFILL_LIMIT = int(os.environ.get("SUMMARY_BACKFILL_LIMIT", "10"))
 
 # CI runners have no git identity; commits would fail without one.
 os.environ.setdefault("GIT_AUTHOR_NAME", "g-i-t-bot")
@@ -47,20 +57,25 @@ def summarize_diff_with_gemini(diff_text: str) -> str:
         print("GEMINI_API_KEY is not set or google-generativeai module is missing. Skipping AI summarization.")
         return "Gemini APIキー未設定のため自動要約はスキップされました。"
 
-    try:
-        client = genai.Client(api_key=api_key)
-        prompt = (
-            "以下のテキストはWebサイトのHTML更新差分(Git Diff)です。\n"
-            "非エンジニア向けに、何が変更されたかを自然な日本語で箇条書き要約してください。\n"
-            "システムコードやタグは無視し、意味のあるコンテンツの変更のみ抽出してください。\n\n"
-            f"```diff\n{diff_text[:10000]}\n```"
-        )
-        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-        return response.text.strip()
-    except Exception as e:
-        # Details go to the log only; the summary is published on the dashboard.
-        print(f"Error during Gemini API call: {e}")
-        return "AI要約を生成できませんでした。"
+    prompt = (
+        "以下のテキストはWebサイトのHTML更新差分(Git Diff)です。\n"
+        "非エンジニア向けに、何が変更されたかを自然な日本語で箇条書き要約してください。\n"
+        "システムコードやタグは無視し、意味のあるコンテンツの変更のみ抽出してください。\n\n"
+        f"```diff\n{diff_text[:10000]}\n```"
+    )
+    client = genai.Client(api_key=api_key)
+    for attempt, wait in enumerate(GEMINI_RETRY_WAITS + [None]):
+        try:
+            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+            return response.text.strip()
+        except Exception as e:
+            # Details go to the log only; the summary is published on the dashboard.
+            print(f"Error during Gemini API call (attempt {attempt + 1}): {e}")
+            transient = getattr(e, "code", None) in GEMINI_TRANSIENT_CODES
+            if wait is None or not transient:
+                return SUMMARY_FAILED
+            time.sleep(wait)
+    return SUMMARY_FAILED
 
 
 ATTACHMENT_EXTS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx")
@@ -128,6 +143,38 @@ def enqueue_archives(site_slug: str, commit_hash: str, page_url: str, attachment
 
 def git(args, cwd, **kw):
     return run_cmd(["git"] + args, cwd=cwd, **kw)
+
+
+def backfill_summaries(data_dir: str):
+    """Regenerate summaries that failed earlier (e.g. Gemini 503), newest first, a few per run."""
+    if BACKFILL_LIMIT <= 0:
+        return
+    try:
+        supabase = get_supabase()
+        if not supabase:
+            return
+        rows = (supabase.table("updates").select("id,site_slug,commit_hash")
+                .eq("summary", SUMMARY_FAILED).order("id", desc=True)
+                .limit(BACKFILL_LIMIT).execute().data or [])
+    except Exception as e:
+        print(f"Error listing failed summaries: {e}")
+        return
+    print(f"{len(rows)} failed summar{'y' if len(rows) == 1 else 'ies'} to retry (limit {BACKFILL_LIMIT}).")
+
+    for row in rows:
+        patch = git(["show", "--format=", "--patch", row["commit_hash"], "--", f"sites/{row['site_slug']}"], data_dir)
+        if patch.returncode != 0 or not patch.stdout.strip():
+            new_summary = SUMMARY_UNAVAILABLE  # commit gone or empty: stop retrying it
+        else:
+            new_summary = summarize_diff_with_gemini(patch.stdout)
+            if new_summary == SUMMARY_FAILED:
+                print("Gemini still failing; stopping backfill for this run.")
+                return
+        try:
+            supabase.table("updates").update({"summary": new_summary}).eq("id", row["id"]).execute()
+            print(f"Updated summary of update {row['id']} ({row['site_slug']}).")
+        except Exception as e:
+            print(f"Error updating summary of update {row['id']}: {e}")
 
 
 def render_diff_html(commit_hash: str, data_dir: str, rel_site: str):
@@ -258,6 +305,9 @@ def main():
             attachments = rec.pop("attachments")
             log_to_supabase(rec)
             enqueue_archives(rec["site_slug"], rec["commit_hash"], rec["url"], attachments)
+
+    # Step 4b: Retry summaries that failed in earlier runs (needs full history: fetch-depth 0)
+    backfill_summaries(args.data_dir)
 
     # Step 5: Build Dashboard (also commits and pushes public/)
     print("=== Step 5: Build Static Dashboard ===")

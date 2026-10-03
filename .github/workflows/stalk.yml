@@ -74,6 +74,17 @@ jobs:
         run: |
           python app/scripts/website_stalk.py --data-dir ./data
 
+      # GitHub recommends repositories stay under ~1 GB; warn well before that.
+      - name: Report repository size
+        if: always()
+        run: |
+          git -C data gc --quiet || true
+          size_mb=$(du -sm data/.git | cut -f1)
+          echo "g-i-t-data .git size: ${size_mb} MB"
+          if [ "$size_mb" -gt 700 ]; then
+            echo "::warning::g-i-t-data is ${size_mb} MB (GitHub recommends < 1 GB). Reduce snapshot noise via editors or rotate the repository."
+          fi
+
       - name: Deploy Dashboard to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -81,3 +92,5 @@ jobs:
           external_repository: TanukiMa/g-i-t-data
           publish_branch: gh-pages
           publish_dir: ./data/public
+          # Keep gh-pages at a single commit; the history already lives on main.
+          force_orphan: true
