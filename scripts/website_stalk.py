@@ -5,6 +5,7 @@ import subprocess
 import argparse
 from urllib.parse import urljoin, urlparse
 import yaml
+from build_dashboard import commit_and_push_parent
 from bs4 import BeautifulSoup
 
 try:
@@ -176,7 +177,7 @@ def process_site_submodule(data_dir: str, site_slug: str):
 
     # 1. Execute website-stalker
     print(f"--- Running website-stalker in {site_path} ---")
-    run_cmd(["website-stalker", "--config", "website-stalker.yaml", "run"], cwd=site_path)
+    run_cmd(["website-stalker", "run", "--all"], cwd=site_path)
 
     # 2. Check git status
     status_res = run_cmd(["git", "status", "--porcelain"], cwd=site_path)
@@ -243,6 +244,9 @@ def main():
     prov = subprocess.run([sys.executable, provision_script, "--data-dir", args.data_dir])
     if prov.returncode != 0:
         print(f"Provisioning exited with {prov.returncode}")
+    # Persist new submodules (.gitmodules + pointers) right away, independent of later steps.
+    if not commit_and_push_parent(args.data_dir):
+        print("Could not push parent repository after provisioning.")
 
     # Step 2: Iterate over all submodules in sites/
     print("=== Step 2: Stalk & Process Submodules ===")

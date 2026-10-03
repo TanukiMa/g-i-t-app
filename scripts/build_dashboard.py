@@ -102,6 +102,7 @@ def main():
     updates = fetch_updates_from_supabase()
     if updates is None:
         print("Could not fetch updates; leaving public/ untouched.")
+        commit_and_push_parent(args.data_dir)  # still persist submodule pointers
         sys.exit(1)
 
     os.makedirs(public_dir, exist_ok=True)

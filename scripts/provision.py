@@ -14,13 +14,14 @@ os.environ.setdefault("GIT_COMMITTER_EMAIL", os.environ["GIT_AUTHOR_EMAIL"])
 from urllib.parse import urlparse
 import yaml
 
-# Defaults written at the top of every new site's website-stalker.yaml.
-STALKER_DEFAULTS = """\
-headers:
-    - "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-editors: &default_editors
-    - html_sanitize
-"""
+# Per-site defaults for website-stalker.yaml. website-stalker rejects unknown
+# top-level keys, so headers/editors must live inside the site entry.
+DEFAULT_SITE_OPTIONS = {
+    "headers": [
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ],
+    "editors": ["html_sanitize"],
+}
 
 
 def generate_slug(url: str) -> str:
@@ -105,11 +106,10 @@ def provision_submodule(data_dir: str, target: dict, org_or_user: str = "TanukiM
         print(f"{full_repo} already has a main branch; not re-initializing.")
     else:
         # name/slug are G-I-T metadata; website-stalker rejects them.
-        site_cfg = {k: v for k, v in target.items() if k not in ("name", "slug")} if isinstance(target, dict) else {"url": url}
+        extra = {k: v for k, v in target.items() if k not in ("name", "slug", "url")} if isinstance(target, dict) else {}
+        site_cfg = {"url": url, **DEFAULT_SITE_OPTIONS, **extra}  # master config overrides defaults
         with tempfile.TemporaryDirectory(prefix=f"git-prov-{slug}-") as temp_dir:
             with open(os.path.join(temp_dir, "website-stalker.yaml"), "w", encoding="utf-8") as f:
-                # Written as text (not yaml.dump) so the &default_editors anchor survives.
-                f.write(STALKER_DEFAULTS)
                 yaml.dump({"sites": [site_cfg]}, f, allow_unicode=True, sort_keys=False)
             run_cmd(["git", "init", "-b", "main"], cwd=temp_dir, check=False)
             run_cmd(["git", "add", "website-stalker.yaml"], cwd=temp_dir, check=False)
