@@ -8,7 +8,9 @@
   </nav>
 {%- endmacro %}
 
-{#- diff_prefix: path from the current page to the site's directory ("sites/<slug>/" from the root, "" inside it). -#}
+{#- Links shown: the diff page and the Wayback copy of the monitored URL itself. Documents linked from the page
+    are archived by archive_worker.py but not listed here.
+    diff_prefix: path from the current page to the site's directory ("sites/<slug>/" from the root, "" inside it). -#}
 {% macro entry(item, diff_prefix='') -%}
 <section class="entry{% if item.summary == initial_summary %} entry--initial{% endif %}">
       <h2>{{ item.created_at|jst }} — {{ item.site_slug }}</h2>
@@ -17,15 +19,14 @@
       </ul>
       <p>コミット: <a class="commit-badge" href="{{ data_repo_url }}/commit/{{ item.commit_hash }}" target="_blank" rel="noopener noreferrer">{{ item.commit_hash[:7] }}</a></p>
       <div class="summary">{{ item.summary|md }}</div>
-      {%- set has_links = item.diff_file or item.archives %}
-      {% if has_links %}
+      {%- set page = item.archives|selectattr('kind', 'equalto', 'page')|first %}
+      {% set page_done = page and page.status == 'done' and page.archive_url %}
+      {% set page_pending = page and page.status == 'pending' %}
+      {% if item.diff_file or page_done or page_pending %}
       <div class="links">
         {% if item.diff_file %}<a href="{{ diff_prefix }}{{ item.diff_file }}">🔍 差分</a>{% endif %}
-        {% for a in item.archives %}
-        {% set label = 'ページ' if a.kind == 'page' else a.url.rsplit('/', 1)[-1] %}
-        {% if a.status == 'done' %}<a href="{{ a.archive_url }}" target="_blank" rel="noopener noreferrer">{{ '📦' if a.kind == 'page' else '📄' }} {{ label }}</a>
-        {% elif a.status == 'pending' %}<span title="{{ a.url }}">⏳ {{ label }} 保存待ち</span>{% endif %}
-        {% endfor %}
+        {% if page_done %}<a href="{{ page.archive_url }}" target="_blank" rel="noopener noreferrer">📦 Wayback Machine</a>
+        {% elif page_pending %}<span>⏳ Wayback 保存待ち</span>{% endif %}
       </div>
       {% endif %}
     </section>
