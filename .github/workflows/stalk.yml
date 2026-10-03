@@ -40,8 +40,21 @@ jobs:
         with:
           python-version: '3.10'
 
+      # Rebuild only when the fork changes: the cache key is its current HEAD commit.
+      - name: Resolve website-stalker revision
+        id: ws
+        run: echo "sha=$(git ls-remote https://github.com/TanukiMa/website-stalker.git HEAD | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache website-stalker binary
+        id: ws-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/website-stalker
+          key: website-stalker-${{ runner.os }}-${{ steps.ws.outputs.sha }}
+
       - name: Install website-stalker
-        run: cargo install --locked --git https://github.com/TanukiMa/website-stalker.git
+        if: steps.ws-cache.outputs.cache-hit != 'true'
+        run: cargo install --locked --git https://github.com/TanukiMa/website-stalker.git --rev ${{ steps.ws.outputs.sha }}
 
       - name: Install Dependencies
         run: pip install -r app/requirements.txt
