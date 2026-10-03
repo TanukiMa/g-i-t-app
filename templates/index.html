@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G医t - 医療・行政 Web更新トラッキング</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8f9fa; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }
+        .update-card { border: 1px solid #e0e0e0; border-left: 4px solid #0056b3; border-radius: 4px; margin-bottom: 20px; padding: 15px 20px; background: #fff; }
+        .update-header { display: flex; justify-content: space-between; font-size: 0.9em; color: #666; margin-bottom: 10px; }
+        .update-title { font-size: 1.1em; font-weight: bold; margin-bottom: 10px; }
+        .update-summary { background: #f1f5f9; padding: 12px; border-radius: 4px; font-size: 0.95em; line-height: 1.6; white-space: pre-wrap; }
+        .update-links { margin-top: 10px; font-size: 0.85em; }
+        .update-links a, .update-links span { color: #0056b3; text-decoration: none; margin-right: 15px; }
+        .update-links a:hover { text-decoration: underline; }
+        .badge { background: #e2e8f0; color: #334155; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>G医t (G-I-T) 医療・行政 Web更新タイムライン</h1>
+        <p>自動監視対象ウェブサイトの最新の差分・AI要約・Wayback Machine アーカイブ一覧です。</p>
+        
+        <div class="timeline">
+            {% for item in updates %}
+            <div class="update-card">
+                <div class="update-header">
+                    <span><strong class="badge">{{ item.site_slug }}</strong> {{ item.domain }}</span>
+                    <span>{{ item.created_at }}</span>
+                </div>
+                <div class="update-title">
+                    <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.url }}</a>
+                </div>
+                <div class="update-summary">
+                    {{ item.summary }}
+                </div>
+                <div class="update-links">
+                    {% for a in item.archives %}
+                    {% if a.status == 'done' %}
+                    <a href="{{ a.archive_url }}" target="_blank" rel="noopener">{{ '📦 ページ' if a.kind == 'page' else '📄 ' + a.url.rsplit('/', 1)[-1] }}</a>
+                    {% elif a.status == 'pending' %}
+                    <span title="{{ a.url }}">⏳ {{ 'ページ' if a.kind == 'page' else a.url.rsplit('/', 1)[-1] }} 保存待ち</span>
+                    {% endif %}
+                    {% endfor %}
+                    {% if item.diff_file %}
+                    <a href="sites/{{ item.site_slug }}/{{ item.diff_file }}">🔍 差分</a>
+                    {% endif %}
+                    <a href="sites/{{ item.site_slug }}/index.html">📜 サイト別履歴</a>
+                </div>
+            </div>
+            {% else %}
+            <p>更新履歴はまだありません。</p>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

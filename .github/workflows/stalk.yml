@@ -1,0 +1,76 @@
+name: Run G-I-T Stalker Pipeline
+
+on:
+  schedule:
+    - cron: '13 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: git-stalker
+  cancel-in-progress: false
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Checkout Data Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'TanukiMa/g-i-t-data'
+          token: ${{ secrets.GH_PAT }}
+          submodules: recursive
+          fetch-depth: 0
+          path: data
+
+      - name: Setup Node.js (for diff2html)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install diff2html-cli
+        run: npm install -g diff2html-cli
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install website-stalker
+        run: cargo install --locked --git https://github.com/TanukiMa/website-stalker.git
+
+      - name: Install Dependencies
+        run: pip install -r app/requirements.txt
+
+      - name: Configure git
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global user.name "g-i-t-bot"
+          git config --global user.email "g-i-t-bot@users.noreply.github.com"
+          gh auth setup-git
+
+      - name: Execute Pipeline
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          python app/scripts/website_stalk.py --data-dir ./data
+
+      - name: Deploy Dashboard to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.GH_PAT }}
+          external_repository: TanukiMa/g-i-t-data
+          publish_branch: gh-pages
+          publish_dir: ./data/public
