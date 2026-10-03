@@ -29,6 +29,7 @@ DEFAULT_SITE_OPTIONS = {
         {"css_select": "body"},
         {"css_remove": "script, style, noscript, iframe"},
         "html_sanitize",
+        "html_prettify",
     ],
 }
 
