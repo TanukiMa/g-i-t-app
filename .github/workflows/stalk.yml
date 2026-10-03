@@ -24,7 +24,6 @@ jobs:
         with:
           repository: 'TanukiMa/g-i-t-data'
           token: ${{ secrets.GH_PAT }}
-          submodules: recursive
           fetch-depth: 0
           path: data
 
@@ -48,17 +47,12 @@ jobs:
         run: pip install -r app/requirements.txt
 
       - name: Configure git
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           git config --global user.name "g-i-t-bot"
           git config --global user.email "g-i-t-bot@users.noreply.github.com"
-          gh auth setup-git
 
       - name: Execute Pipeline
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          GH_TOKEN: ${{ secrets.GH_PAT }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

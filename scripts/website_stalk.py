@@ -5,7 +5,6 @@ import subprocess
 import argparse
 from urllib.parse import urljoin, urlparse
 import yaml
-from build_dashboard import commit_and_push_parent
 from bs4 import BeautifulSoup
 
 try:
@@ -17,6 +16,9 @@ try:
     from supabase import create_client, Client
 except ImportError:
     create_client = None
+
+# Override without code changes when Google retires a model for new users.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
 # CI runners have no git identity; commits would fail without one.
 os.environ.setdefault("GIT_AUTHOR_NAME", "g-i-t-bot")
@@ -32,7 +34,7 @@ def run_cmd(cmd, cwd=None, input_text=None):
         text=True, encoding="utf-8", errors="replace",
     )
     if res.returncode != 0:
-        print(f"Command failed code {res.returncode}: {res.stderr}")
+        print(f"Command failed code {res.returncode}:\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
     return res
 
 
@@ -53,7 +55,7 @@ def summarize_diff_with_gemini(diff_text: str) -> str:
             "システムコードやタグは無視し、意味のあるコンテンツの変更のみ抽出してください。\n\n"
             f"```diff\n{diff_text[:10000]}\n```"
         )
-        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         return response.text.strip()
     except Exception as e:
         # Details go to the log only; the summary is published on the dashboard.
@@ -124,18 +126,13 @@ def enqueue_archives(site_slug: str, commit_hash: str, page_url: str, attachment
         print(f"Error queueing archive URLs: {e}")
 
 
-def checkout_main(site_path: str):
-    """Submodules are checked out detached; move onto an up-to-date local main."""
-    fetch = run_cmd(["git", "fetch", "origin", "main"], cwd=site_path)
-    if fetch.returncode == 0:
-        run_cmd(["git", "checkout", "-B", "main", "origin/main"], cwd=site_path)
-    else:
-        run_cmd(["git", "checkout", "-B", "main"], cwd=site_path)
+def git(args, cwd, **kw):
+    return run_cmd(["git"] + args, cwd=cwd, **kw)
 
 
-def render_diff_html(commit_hash: str, site_path: str):
-    """Return side-by-side diff HTML for a commit, or None on failure."""
-    patch = run_cmd(["git", "show", "--format=", "--patch", commit_hash], cwd=site_path)
+def render_diff_html(commit_hash: str, data_dir: str, rel_site: str):
+    """Return side-by-side diff HTML for this site's part of a commit, or None on failure."""
+    patch = git(["show", "--format=", "--patch", commit_hash, "--", rel_site], data_dir)
     if patch.returncode != 0 or not patch.stdout.strip():
         return None
     try:
@@ -151,13 +148,15 @@ def render_diff_html(commit_hash: str, site_path: str):
     return html.stdout
 
 
-def process_site_submodule(data_dir: str, site_slug: str):
+def process_site(data_dir: str, site_slug: str):
+    """Stalk one site and commit its changes as one commit. Returns a pending log record or None."""
+    rel_site = f"sites/{site_slug}"
     site_path = os.path.join(data_dir, "sites", site_slug)
     config_file = os.path.join(site_path, "website-stalker.yaml")
 
     if not os.path.exists(config_file):
         print(f"Config {config_file} does not exist. Skipping.")
-        return
+        return None
 
     # Extract target URL from config
     target_url = ""
@@ -166,70 +165,59 @@ def process_site_submodule(data_dir: str, site_slug: str):
             cfg = yaml.safe_load(f)
             if isinstance(cfg, dict) and "sites" in cfg and len(cfg["sites"]) > 0:
                 target_url = cfg["sites"][0].get("url", "")
-            elif isinstance(cfg, list) and len(cfg) > 0:
-                target_url = cfg[0].get("url", "")
     except Exception as e:
         print(f"Error reading {config_file}: {e}")
 
     domain = urlparse(target_url).netloc if target_url else site_slug
 
-    checkout_main(site_path)
-
-    # 1. Execute website-stalker
+    # 1. Execute website-stalker (reads ./website-stalker.yaml, writes fetched pages next to it)
     print(f"--- Running website-stalker in {site_path} ---")
     run_cmd(["website-stalker", "run", "--all"], cwd=site_path)
 
-    # 2. Check git status
-    status_res = run_cmd(["git", "status", "--porcelain"], cwd=site_path)
+    # 2. Any change inside this site's directory?
+    status_res = git(["status", "--porcelain", "--", rel_site], data_dir)
     if not status_res.stdout.strip():
         print(f"No changes detected in {site_slug}.")
-        return
+        return None
 
-    run_cmd(["git", "add", "-A"], cwd=site_path)
-    raw_diff = run_cmd(["git", "diff", "--cached"], cwd=site_path).stdout
+    git(["add", "-A", "--", rel_site], data_dir)
+    raw_diff = git(["diff", "--cached", "--", rel_site], data_dir).stdout
 
     # 3. AI Summarization
     summary = summarize_diff_with_gemini(raw_diff)
 
-    # Commit the content change. This hash is the one logged and never amended.
-    commit_res = run_cmd(["git", "commit", "-m", f"Automated stalker update for {site_slug}"], cwd=site_path)
+    # One commit per site per run; the hash is logged and never amended.
+    commit_res = git(["commit", "-m", f"Update {site_slug}", "--only", "--", rel_site], data_dir)
     if commit_res.returncode != 0:
         print(f"Commit failed for {site_slug}; skipping.")
-        return
-    commit_hash = run_cmd(["git", "rev-parse", "HEAD"], cwd=site_path).stdout.strip()
+        return None
+    commit_hash = git(["rev-parse", "HEAD"], data_dir).stdout.strip()
 
-    # 4. Diff HTML, committed separately so commit_hash stays stable
-    diff_html = render_diff_html(commit_hash, site_path)
+    # 4. Diff HTML goes straight into public/ (published by the dashboard commit)
+    diff_html = render_diff_html(commit_hash, data_dir, rel_site)
     if diff_html:
-        diff_html_filename = f"diff_{commit_hash[:7]}.html"
-        with open(os.path.join(site_path, diff_html_filename), "w", encoding="utf-8") as f:
+        diff_dir = os.path.join(data_dir, "public", "sites", site_slug)
+        os.makedirs(diff_dir, exist_ok=True)
+        with open(os.path.join(diff_dir, f"diff_{commit_hash[:7]}.html"), "w", encoding="utf-8") as f:
             f.write(diff_html)
-        run_cmd(["git", "add", diff_html_filename], cwd=site_path)
-        run_cmd(["git", "commit", "-m", f"Add diff view for {commit_hash[:7]}"], cwd=site_path)
     else:
         print(f"Failed to generate diff HTML for {site_slug}.")
 
-    # Push before logging so the DB never references an unpublished commit
-    push_res = run_cmd(["git", "push", "origin", "main"], cwd=site_path)
-    if push_res.returncode != 0:
-        print(f"Push failed for {site_slug}; not logging this update.")
-        return
-
-    # 5. Supabase Logging
     page_url = target_url or f"https://{domain}"
-    log_to_supabase({
+    return {
         "site_slug": site_slug,
         "domain": domain,
         "url": page_url,
         "commit_hash": commit_hash,
         "summary": summary,
-    })
-
-    # 6. Queue Wayback archiving (page + newly linked documents); handled by archive_worker.py
-    enqueue_archives(site_slug, commit_hash, page_url, extract_attachment_links(raw_diff, page_url))
+        "attachments": extract_attachment_links(raw_diff, page_url),
+    }
 
 
 def main():
+    # Localized OS error messages / Japanese summaries must never crash logging.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="G-I-T Processing Pipeline")
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
     args = parser.parse_args()
@@ -238,33 +226,44 @@ def main():
         print("website-stalker is not installed or not on PATH.")
         sys.exit(1)
 
-    # Step 1: Run Provisioning
+    # Step 1: Run Provisioning (local only: creates sites/<slug>/website-stalker.yaml)
     print("=== Step 1: JIT Auto-Provisioning ===")
-    provision_script = os.path.join(os.path.dirname(__file__), "provision.py")
+    provision_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "provision.py")
     prov = subprocess.run([sys.executable, provision_script, "--data-dir", args.data_dir])
     if prov.returncode != 0:
         print(f"Provisioning exited with {prov.returncode}")
-    # Persist new submodules (.gitmodules + pointers) right away, independent of later steps.
-    if not commit_and_push_parent(args.data_dir):
-        print("Could not push parent repository after provisioning.")
 
-    # Step 2: Iterate over all submodules in sites/
-    print("=== Step 2: Stalk & Process Submodules ===")
+    # Step 2: One commit per changed site
+    print("=== Step 2: Stalk & Process Sites ===")
+    pending = []
     sites_dir = os.path.join(args.data_dir, "sites")
     if os.path.exists(sites_dir):
         for entry in sorted(os.listdir(sites_dir)):
-            site_path = os.path.join(sites_dir, entry)
-            if os.path.isdir(site_path):
+            if os.path.isdir(os.path.join(sites_dir, entry)):
                 try:
-                    process_site_submodule(args.data_dir, entry)
+                    record = process_site(args.data_dir, entry)
+                    if record:
+                        pending.append(record)
                 except Exception as e:
-                    print(f"Error processing submodule {entry}: {e}")
+                    print(f"Error processing site {entry}: {e}")
 
-    # Step 3: Build Dashboard, then commit/push the parent repo
-    print("=== Step 3: Build Static Dashboard ===")
-    build_script = os.path.join(os.path.dirname(__file__), "build_dashboard.py")
+    # Step 3: Publish all site commits (and provisioning commits) with one push
+    pushed = git(["push", "origin", "HEAD"], args.data_dir).returncode == 0
+    if not pushed:
+        print("Push failed; not logging this run's updates to Supabase.")
+
+    # Step 4: Supabase logging + archive queueing, only for commits that are on GitHub
+    if pushed:
+        for rec in pending:
+            attachments = rec.pop("attachments")
+            log_to_supabase(rec)
+            enqueue_archives(rec["site_slug"], rec["commit_hash"], rec["url"], attachments)
+
+    # Step 5: Build Dashboard (also commits and pushes public/)
+    print("=== Step 5: Build Static Dashboard ===")
+    build_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_dashboard.py")
     build = subprocess.run([sys.executable, build_script, "--data-dir", args.data_dir])
-    sys.exit(build.returncode)
+    sys.exit(0 if build.returncode == 0 and pushed else 1)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 import os
 import sys
 import argparse
-import shutil
 import subprocess
 from datetime import datetime, timezone
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -14,20 +13,15 @@ except ImportError:
 PAGE_SIZE = 1000
 
 
-def attach_diff_pages(updates, data_dir: str, public_dir: str):
-    """Copy each update's diff_<hash7>.html next to the site page and set item['diff_file']."""
+def attach_diff_pages(updates, public_dir: str):
+    """Set item['diff_file'] for updates whose diff_<hash7>.html was written by website_stalk.py."""
     for item in updates:
         slug, commit = item.get("site_slug"), item.get("commit_hash") or ""
         if not slug or not commit:
             continue
         name = f"diff_{commit[:7]}.html"
-        src = os.path.join(data_dir, "sites", slug, name)
-        if not os.path.isfile(src):
-            continue
-        dest_dir = os.path.join(public_dir, "sites", slug)
-        os.makedirs(dest_dir, exist_ok=True)
-        shutil.copyfile(src, os.path.join(dest_dir, name))
-        item["diff_file"] = name
+        if os.path.isfile(os.path.join(public_dir, "sites", slug, name)):
+            item["diff_file"] = name
 
 
 def fetch_all(supabase, table: str) -> list:
@@ -72,14 +66,13 @@ def git(args, cwd):
     print(f"Executing in {cwd}: git {' '.join(args)}")
     res = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True,
                          encoding="utf-8", errors="replace")
-    if res.returncode != 0:
+    if res.returncode != 0 and "--quiet" not in args:  # --quiet uses exit 1 as "has changes"
         print(f"git {args[0]} failed ({res.returncode}): {res.stderr}")
     return res
 
 
 def commit_and_push_parent(data_dir: str) -> bool:
-    """Update submodule pointers, commit the global snapshot and push g-i-t-data."""
-    git(["submodule", "update", "--remote"], data_dir)
+    """Commit the regenerated public/ (and anything else pending) and push g-i-t-data."""
     git(["add", "-A"], data_dir)
     if git(["diff", "--cached", "--quiet"], data_dir).returncode == 0:
         print("No parent repository changes to commit.")
@@ -102,12 +95,12 @@ def main():
     updates = fetch_updates_from_supabase()
     if updates is None:
         print("Could not fetch updates; leaving public/ untouched.")
-        commit_and_push_parent(args.data_dir)  # still persist submodule pointers
+        commit_and_push_parent(args.data_dir)  # still publish new diff pages
         sys.exit(1)
 
     os.makedirs(public_dir, exist_ok=True)
 
-    attach_diff_pages(updates, args.data_dir, public_dir)
+    attach_diff_pages(updates, public_dir)
 
     # Summaries derive from untrusted web content, so escape everything.
     env = Environment(loader=FileSystemLoader(templates_dir), autoescape=select_autoescape(["html"]))
