@@ -1,53 +1,27 @@
-<!DOCTYPE html>
+{% from "_macros.html" import nav, entry, footer %}<!doctype html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ site_slug }} - G医t 更新履歴</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8f9fa; color: #333; margin: 0; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        h1 { color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }
-        .back-link { margin-bottom: 20px; display: inline-block; color: #0056b3; text-decoration: none; }
-        .update-card { border: 1px solid #e0e0e0; border-left: 4px solid #28a745; border-radius: 4px; margin-bottom: 20px; padding: 15px 20px; background: #fff; }
-        .update-header { display: flex; justify-content: space-between; font-size: 0.9em; color: #666; margin-bottom: 10px; }
-        .update-summary { background: #f1f5f9; padding: 12px; border-radius: 4px; font-size: 0.95em; line-height: 1.6; white-space: pre-wrap; }
-        .update-links { margin-top: 10px; font-size: 0.85em; }
-        .update-links a { color: #0056b3; text-decoration: none; margin-right: 15px; }
-    </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ site_slug }} - G医t</title>
+<link rel="stylesheet" href="../../assets/github.css" />
 </head>
 <body>
-    <div class="container">
-        <a href="../../index.html" class="back-link">← 全体タイムラインへ戻る</a>
-        <h1>{{ site_slug }} 更新履歴</h1>
-        
-        <div class="timeline">
-            {% for item in updates %}
-            <div class="update-card">
-                <div class="update-header">
-                    <span>Commit: <code>{{ item.commit_hash[:7] }}</code></span>
-                    <span>{{ item.created_at }}</span>
-                </div>
-                <div class="update-summary">
-                    {{ item.summary }}
-                </div>
-                <div class="update-links">
-                    {% if item.diff_file %}
-                    <a href="{{ item.diff_file }}">🔍 差分</a>
-                    {% endif %}
-                    {% for a in item.archives %}
-                    {% if a.status == 'done' %}
-                    <a href="{{ a.archive_url }}" target="_blank" rel="noopener">{{ '📦 ページ' if a.kind == 'page' else '📄 ' + a.url.rsplit('/', 1)[-1] }}</a>
-                    {% elif a.status == 'pending' %}
-                    <span title="{{ a.url }}">⏳ {{ 'ページ' if a.kind == 'page' else a.url.rsplit('/', 1)[-1] }} 保存待ち</span>
-                    {% endif %}
-                    {% endfor %}
-                </div>
-            </div>
-            {% else %}
-            <p>このサイトの更新履歴はまだありません。</p>
-            {% endfor %}
-        </div>
-    </div>
+<main>
+  {{ nav('', '../../') }}
+  <header>
+    <h1>{{ site_slug }}</h1>
+    <p id="status">生成: {{ generated }}</p>
+  </header>
+  <a class="page-back" href="../../index.html">← 全体タイムラインへ戻る</a>
+  <div id="content">
+    {% for item in updates %}
+    {{ entry(item, '') }}
+    {% else %}
+    <p>このサイトの更新履歴はまだありません。</p>
+    {% endfor %}
+  </div>
+  {{ footer() }}
+</main>
 </body>
 </html>

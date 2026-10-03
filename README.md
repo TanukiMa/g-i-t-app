@@ -22,7 +22,7 @@ g-i-t-app/
 │   ├── website_stalk.py       # パイプライン本体
 │   ├── provision.py           # sites/<slug>/ 自動プロビジョニング
 │   ├── archive_worker.py      # archive_queue を Internet Archive に保存
-│   └── build_dashboard.py     # ダッシュボード生成
+│   └── build_dashboard.py     # ダッシュボード生成（GitHub風 / dashboard / minimal）
 ├── templates/
 │   ├── index.html             # 全体タイムラインテンプレート
 │   └── site_detail.html       # サイト個別タイムラインテンプレート

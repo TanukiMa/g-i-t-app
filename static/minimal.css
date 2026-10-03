@@ -1,0 +1,131 @@
+  :root {
+    color-scheme: light dark;
+    --bg: #fdfcfa;
+    --fg: #2a2724;
+    --muted: #8a8378;
+    --border: #e7e2da;
+    --link: #2a2724;
+    --code-bg: transparent;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171512;
+      --fg: #eae6df;
+      --muted: #8f897d;
+      --border: #322e28;
+      --link: #eae6df;
+      --code-bg: transparent;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    margin: 0;
+    padding-block: 3rem;
+    font-family: Georgia, "Hiragino Mincho ProN", "Yu Mincho", serif;
+    line-height: 1.9;
+  }
+  main {
+    max-width: 620px;
+    margin: 0 auto;
+    padding-inline: 20px;
+  }
+  nav.style-switch {
+    display: flex;
+    gap: 1.25rem;
+    margin-bottom: 3rem;
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", sans-serif;
+  }
+  nav.style-switch a {
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    text-decoration: none;
+    padding-bottom: 0.2rem;
+  }
+  nav.style-switch a:hover { color: var(--fg); }
+  nav.style-switch a[aria-current="page"] {
+    color: var(--fg);
+    border-bottom: 1px solid var(--fg);
+  }
+  header {
+    margin-bottom: 3rem;
+  }
+  header h1 {
+    font-size: 1.7rem;
+    font-weight: normal;
+    margin: 0 0 0.5rem;
+    letter-spacing: 0.02em;
+  }
+  header p {
+    color: var(--muted);
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", sans-serif;
+    font-size: 0.85em;
+  }
+  #status {
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", sans-serif;
+  }
+  #content { word-break: break-word; }
+  .entry {
+    display: block;
+    padding-block: 1.75rem;
+    border-top: 1px solid var(--border);
+  }
+  .entry:first-of-type { border-top: 1px solid var(--border); }
+  .entry--maintenance { color: var(--muted); }
+  .entry h2 {
+    font-size: 0.95rem;
+    font-weight: normal;
+    font-style: italic;
+    color: var(--muted);
+    margin: 0 0 1rem;
+    border: none;
+    padding: 0;
+  }
+  .entry ul {
+    list-style: none;
+    margin: 0 0 0.9rem;
+    padding: 0;
+  }
+  .entry li {
+    display: inline;
+  }
+  .entry li:not(:last-child)::after {
+    content: " · ";
+    color: var(--muted);
+  }
+  .site-chip {
+    color: var(--link);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .site-chip:hover { border-bottom-color: var(--fg); }
+  .entry p {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", sans-serif;
+    font-size: 0.78em;
+    color: var(--muted);
+  }
+  .commit-badge {
+    color: var(--muted);
+    text-decoration: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .commit-badge:hover { color: var(--fg); }
+  a { color: var(--link); }
+
+/* ---- G-I-T additions: rendered summary, links, initial snapshot ---- */
+.entry .summary { margin: 0.75rem 0 0; }
+.entry .summary p { margin: 0 0 0.5em; font-size: 0.95em; }
+.entry .summary ul { display: block; list-style: disc; margin: 0.25rem 0 0.5rem; padding-left: 1.4em; gap: 0; flex-wrap: nowrap; }
+.entry .summary ul ul { list-style: circle; margin: 0.15rem 0; }
+.entry .summary li { display: list-item; margin: 0.15rem 0; font-size: 0.95em; }
+.entry .summary li::after { content: none; }
+.entry .summary code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: var(--code-bg); padding: 0.05em 0.35em; border-radius: 4px; }
+.entry .links { margin-top: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.85em; }
+.entry .links a, .entry .links span { text-decoration: none; }
+.entry .links span { color: var(--muted); }
+.entry--initial .summary { color: var(--muted); }
+.page-back { display: inline-block; margin-bottom: 1.25rem; font-size: 0.85em; }

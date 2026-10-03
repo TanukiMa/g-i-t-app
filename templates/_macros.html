@@ -1,0 +1,39 @@
+{#- Shared building blocks for index / dashboard / minimal / site_detail. -#}
+
+{% macro nav(current, root='') -%}
+<nav class="style-switch" aria-label="表示スタイル切り替え">
+    <a href="{{ root }}index.html"{% if current == 'index' %} aria-current="page"{% endif %}>GitHub風</a>
+    <a href="{{ root }}dashboard.html"{% if current == 'dashboard' %} aria-current="page"{% endif %}>dashboard</a>
+    <a href="{{ root }}minimal.html"{% if current == 'minimal' %} aria-current="page"{% endif %}>minimal</a>
+  </nav>
+{%- endmacro %}
+
+{#- diff_prefix: path from the current page to the site's directory ("sites/<slug>/" from the root, "" inside it). -#}
+{% macro entry(item, diff_prefix='') -%}
+<section class="entry{% if item.summary == initial_summary %} entry--initial{% endif %}">
+      <h2>{{ item.created_at|jst }} — {{ item.site_slug }}</h2>
+      <ul>
+        <li><a class="site-chip" href="{{ item.url }}" target="_blank" rel="noopener noreferrer" title="{{ item.url }}">{{ item.url|hostname }}</a></li>
+      </ul>
+      <p>コミット: <a class="commit-badge" href="{{ data_repo_url }}/commit/{{ item.commit_hash }}" target="_blank" rel="noopener noreferrer">{{ item.commit_hash[:7] }}</a></p>
+      <div class="summary">{{ item.summary|md }}</div>
+      {%- set has_links = item.diff_file or item.archives %}
+      {% if has_links %}
+      <div class="links">
+        {% if item.diff_file %}<a href="{{ diff_prefix }}{{ item.diff_file }}">🔍 差分</a>{% endif %}
+        {% for a in item.archives %}
+        {% set label = 'ページ' if a.kind == 'page' else a.url.rsplit('/', 1)[-1] %}
+        {% if a.status == 'done' %}<a href="{{ a.archive_url }}" target="_blank" rel="noopener noreferrer">{{ '📦' if a.kind == 'page' else '📄' }} {{ label }}</a>
+        {% elif a.status == 'pending' %}<span title="{{ a.url }}">⏳ {{ label }} 保存待ち</span>{% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+{%- endmacro %}
+
+{% macro footer() -%}
+<footer class="site-footer">
+    <p>"g医t" is built using <a href="https://github.com/">GitHub</a>, <a href="https://git-scm.com/">Git</a>, <a href="https://github.com/EdJoPaTo/website-stalker">website-stalker</a> (forked by <a href="https://github.com/TanukiMa/website-stalker">Matanuki version</a>), GitHub Actions, <a href="https://supabase.com/">Supabase</a>, <a href="https://web.archive.org/">Internet Archive</a> and more.</p>
+    <p>© 2026 Matanuki、© 2026 MATANUKI.</p>
+  </footer>
+{%- endmacro %}

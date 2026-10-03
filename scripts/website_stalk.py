@@ -7,6 +7,7 @@ import argparse
 from urllib.parse import urljoin, urlparse
 import yaml
 from bs4 import BeautifulSoup
+from common import SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE
 
 try:
     from google import genai
@@ -24,10 +25,6 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_TRANSIENT_CODES = (429, 500, 503, 504)
 GEMINI_RETRY_WAITS = [10, 30, 60]
 
-# Stored in updates.summary when no summary could be produced. SUMMARY_FAILED rows are retried
-# by backfill_summaries(); SUMMARY_UNAVAILABLE marks rows whose diff can no longer be read.
-SUMMARY_FAILED = "AI要約を生成できませんでした。"
-SUMMARY_UNAVAILABLE = "差分を取得できなかったため要約できません。"
 BACKFILL_LIMIT = int(os.environ.get("SUMMARY_BACKFILL_LIMIT", "10"))
 
 # CI runners have no git identity; commits would fail without one.
@@ -217,6 +214,10 @@ def process_site(data_dir: str, site_slug: str):
 
     domain = urlparse(target_url).netloc if target_url else site_slug
 
+    # First fetch of this site: nothing but the config is tracked yet, so there is no "change" to describe.
+    tracked = git(["ls-files", "--", rel_site], data_dir).stdout.split()
+    is_initial = all(os.path.basename(p) == "website-stalker.yaml" for p in tracked)
+
     # 1. Execute website-stalker (reads ./website-stalker.yaml, writes fetched pages next to it)
     print(f"--- Running website-stalker in {site_path} ---")
     run_cmd(["website-stalker", "run", "--all"], cwd=site_path)
@@ -230,8 +231,12 @@ def process_site(data_dir: str, site_slug: str):
     git(["add", "-A", "--", rel_site], data_dir)
     raw_diff = git(["diff", "--cached", "--", rel_site], data_dir).stdout
 
-    # 3. AI Summarization
-    summary = summarize_diff_with_gemini(raw_diff)
+    # 3. AI Summarization (not for the initial snapshot: everything is "new")
+    if is_initial:
+        print(f"Initial snapshot of {site_slug}: skipping AI summary, diff page and attachment queueing.")
+        summary = SUMMARY_INITIAL
+    else:
+        summary = summarize_diff_with_gemini(raw_diff)
 
     # One commit per site per run; the hash is logged and never amended.
     commit_res = git(["commit", "-m", f"Update {site_slug}", "--only", "--", rel_site], data_dir)
@@ -241,8 +246,10 @@ def process_site(data_dir: str, site_slug: str):
     commit_hash = git(["rev-parse", "HEAD"], data_dir).stdout.strip()
 
     # 4. Diff HTML goes straight into public/ (published by the dashboard commit)
-    diff_html = render_diff_html(commit_hash, data_dir, rel_site)
-    if diff_html:
+    diff_html = None if is_initial else render_diff_html(commit_hash, data_dir, rel_site)
+    if is_initial:
+        pass
+    elif diff_html:
         diff_dir = os.path.join(data_dir, "public", "sites", site_slug)
         os.makedirs(diff_dir, exist_ok=True)
         with open(os.path.join(diff_dir, f"diff_{commit_hash[:7]}.html"), "w", encoding="utf-8") as f:
@@ -257,7 +264,7 @@ def process_site(data_dir: str, site_slug: str):
         "url": page_url,
         "commit_hash": commit_hash,
         "summary": summary,
-        "attachments": extract_attachment_links(raw_diff, page_url),
+        "attachments": [] if is_initial else extract_attachment_links(raw_diff, page_url),
     }
 
 

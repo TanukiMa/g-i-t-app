@@ -1,9 +1,16 @@
+import html
 import os
+import re
 import sys
 import argparse
+import shutil
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
+
+from common import DATA_REPO_URL, SUMMARY_INITIAL
 
 try:
     from supabase import create_client, Client
@@ -11,7 +18,94 @@ except ImportError:
     create_client = None
 
 PAGE_SIZE = 1000
+JST = timezone(timedelta(hours=9))  # no DST, so a fixed offset is exact and needs no tzdata
+ROOT_PAGES = ("index.html", "dashboard.html", "minimal.html")
 
+
+# ---------------------------------------------------------------- template filters
+
+def parse_timestamp(value) -> datetime:
+    """Parse a Supabase timestamptz string (fraction may have 1-6 digits)."""
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value).strip().replace("Z", "+00:00")
+        text = re.sub(r"\.(\d+)", lambda m: "." + m.group(1).ljust(6, "0")[:6], text, count=1)
+        dt = datetime.fromisoformat(text)
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def to_jst(value, with_suffix: bool = True) -> str:
+    try:
+        text = parse_timestamp(value).astimezone(JST).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return str(value or "")
+    return f"{text} JST" if with_suffix else text
+
+
+def hostname(url) -> str:
+    host = urlparse(str(url)).netloc
+    return host[4:] if host.startswith("www.") else (host or str(url))
+
+
+_BULLET = re.compile(r"^(\s*)([*+\-]|\d+[.)])\s+(.*)$")
+_HEADING = re.compile(r"^#{1,6}\s+(.*)$")
+
+
+def _inline(text: str) -> str:
+    text = html.escape(text, quote=True)  # escape first: nothing from the source can become markup
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    return text
+
+
+def render_markdown(text) -> Markup:
+    """Tiny, safe Markdown subset for AI summaries: bullets (nested), **bold**, `code`, paragraphs."""
+    out, indents, para = [], [], []
+
+    def flush_para():
+        if para:
+            out.append("<p>" + _inline(" ".join(para)) + "</p>")
+            para.clear()
+
+    def close_lists():
+        while indents:
+            out.append("</li></ul>")
+            indents.pop()
+
+    for raw in str(text or "").splitlines():
+        if not raw.strip():
+            flush_para()
+            close_lists()
+            continue
+        bullet = _BULLET.match(raw.expandtabs(4))
+        if bullet:
+            flush_para()
+            depth, content = len(bullet.group(1)), bullet.group(3)
+            if not indents or depth > indents[-1]:
+                out.append("<ul>")
+                indents.append(depth)
+            else:
+                while len(indents) > 1 and depth < indents[-1]:
+                    out.append("</li></ul>")
+                    indents.pop()
+                out.append("</li>")
+            out.append("<li>" + _inline(content))
+        elif indents:
+            out.append(" " + _inline(raw.strip()))  # continuation of the current list item
+        else:
+            heading = _HEADING.match(raw.strip())
+            if heading:
+                flush_para()
+                out.append("<p><strong>" + _inline(heading.group(1)) + "</strong></p>")
+            else:
+                para.append(raw.strip())
+    flush_para()
+    close_lists()
+    return Markup("".join(out))
+
+
+# ---------------------------------------------------------------- data
 
 def attach_diff_pages(updates, public_dir: str):
     """Set item['diff_file'] for updates whose diff_<hash7>.html was written by website_stalk.py."""
@@ -62,6 +156,8 @@ def fetch_updates_from_supabase():
     return updates
 
 
+# ---------------------------------------------------------------- git
+
 def git(args, cwd):
     print(f"Executing in {cwd}: git {' '.join(args)}")
     res = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True,
@@ -82,6 +178,16 @@ def commit_and_push_parent(data_dir: str) -> bool:
         return False
     return git(["push", "origin", "HEAD"], data_dir).returncode == 0
 
+
+# ---------------------------------------------------------------- build
+
+def write(path: str, content: str):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"Generated {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build static dashboard for G-I-T")
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
@@ -89,6 +195,7 @@ def main():
 
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     templates_dir = os.path.join(app_dir, "templates")
+    static_dir = os.path.join(app_dir, "static")
     public_dir = os.path.join(args.data_dir, "public")
 
     # Fetch updates first: on failure keep the previously published dashboard
@@ -99,37 +206,44 @@ def main():
         sys.exit(1)
 
     os.makedirs(public_dir, exist_ok=True)
-
     attach_diff_pages(updates, public_dir)
 
-    # Summaries derive from untrusted web content, so escape everything.
+    # Summaries derive from untrusted web content, so escape everything (render_markdown escapes first).
     env = Environment(loader=FileSystemLoader(templates_dir), autoescape=select_autoescape(["html"]))
-    index_template = env.get_template("index.html")
-    site_detail_template = env.get_template("site_detail.html")
+    env.filters.update(jst=to_jst, hostname=hostname, md=render_markdown)
+    env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL)
 
-    # Render main index.html
-    rendered_index = index_template.render(updates=updates)
-    with open(os.path.join(public_dir, "index.html"), "w", encoding="utf-8") as f:
-        f.write(rendered_index)
-    print(f"Generated {os.path.join(public_dir, 'index.html')}")
+    generated = to_jst(datetime.now(timezone.utc))
+    stats = {
+        "updates": len(updates),
+        "sites": len({u["site_slug"] for u in updates if u.get("site_slug")}),
+        "latest": to_jst(updates[0]["created_at"], with_suffix=False)[:10] if updates else "-",
+    }
 
-    # Group updates by site_slug for site detail pages
+    # Stylesheets
+    if os.path.isdir(static_dir):
+        shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True)
+
+    # Three views of the same timeline (GitHub-style / dashboard / minimal)
+    for page in ROOT_PAGES:
+        rendered = env.get_template(page).render(updates=updates, stats=stats, generated=generated)
+        write(os.path.join(public_dir, page), rendered)
+
+    # Per-site history pages
     sites_updates = {}
     for update in updates:
         slug = update.get("site_slug")
         if slug:
             sites_updates.setdefault(slug, []).append(update)
 
+    site_template = env.get_template("site_detail.html")
     for slug, site_upds in sites_updates.items():
-        site_public_dir = os.path.join(public_dir, "sites", slug)
-        os.makedirs(site_public_dir, exist_ok=True)
-        rendered_site = site_detail_template.render(site_slug=slug, updates=site_upds)
-        with open(os.path.join(site_public_dir, "index.html"), "w", encoding="utf-8") as f:
-            f.write(rendered_site)
-        print(f"Generated {os.path.join(site_public_dir, 'index.html')}")
+        rendered = site_template.render(site_slug=slug, updates=site_upds, generated=generated)
+        write(os.path.join(public_dir, "sites", slug, "index.html"), rendered)
 
     if not commit_and_push_parent(args.data_dir):
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
