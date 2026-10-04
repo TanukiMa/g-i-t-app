@@ -106,6 +106,83 @@ def run_cmd(cmd, cwd=None):
     return res
 
 
+# G-I-T metadata in config.yaml; website-stalker rejects unknown keys, so these are never written out.
+RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore")
+
+# website-stalker uses the Rust `regex` crate: no look-around and no back-references.
+_UNSUPPORTED_REGEX = re.compile(r"\(\?<?[=!]|\\[1-9]")
+
+
+def ignore_editors(target, slug: str = "") -> list:
+    """`regex_replace` editors for a site's `ignore` rules in config.yaml.
+
+    Each rule is a pattern string (matches are removed) or {pattern, replace}. Invalid rules are skipped
+    with a warning so one typo cannot break provisioning.
+    """
+    rules = target.get("ignore") if isinstance(target, dict) else None
+    if not rules:
+        return []
+    if not isinstance(rules, list):
+        print(f"WARNING: {slug}: `ignore` must be a list; ignored.")
+        return []
+    editors = []
+    for rule in rules:
+        if isinstance(rule, str):
+            pattern, replace = rule, ""
+        elif isinstance(rule, dict) and isinstance(rule.get("pattern"), str):
+            pattern, replace = rule["pattern"], str(rule.get("replace", ""))
+        else:
+            print(f"WARNING: {slug}: unsupported ignore rule {rule!r}; skipped.")
+            continue
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            print(f"WARNING: {slug}: invalid ignore pattern {pattern!r} ({e}); skipped.")
+            continue
+        if _UNSUPPORTED_REGEX.search(pattern):
+            print(f"WARNING: {slug}: ignore pattern {pattern!r} uses look-around/back-references, "
+                  "which website-stalker's regex engine does not support; skipped.")
+            continue
+        editors.append({"regex_replace": {"pattern": pattern, "replace": replace}})
+    return editors
+
+
+def merge_editors(editors: list, extra: list) -> list:
+    """Insert `extra` editors before `html_sanitize` (else at the end), skipping ones already present."""
+    merged = list(editors)
+    new = [e for e in extra if e not in merged]
+    if not new:
+        return merged
+    at = merged.index("html_sanitize") if "html_sanitize" in merged else len(merged)
+    return merged[:at] + new + merged[at:]
+
+
+def commit_config(data_dir: str, slug: str, message: str):
+    # Own commit, so the stalker run only contains fetched content. Pushed later by website_stalk.py.
+    rel_config = f"sites/{slug}/website-stalker.yaml"
+    run_cmd(["git", "add", "--", rel_config], cwd=data_dir)
+    run_cmd(["git", "commit", "-m", message, "--only", "--", rel_config], cwd=data_dir)
+
+
+def sync_ignore_rules(data_dir: str, slug: str, config_path: str, wanted: list):
+    """Add missing `ignore` rules to an already provisioned site. Everything else in its YAML is kept."""
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    try:
+        site_cfg = cfg["sites"][0]
+    except (TypeError, KeyError, IndexError):
+        print(f"WARNING: {slug}: unexpected website-stalker.yaml layout; ignore rules not applied.")
+        return
+    merged = merge_editors(site_cfg.get("editors") or [], wanted)
+    if merged == (site_cfg.get("editors") or []):
+        return
+    site_cfg["editors"] = merged
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(cfg, f, allow_unicode=True, sort_keys=False)
+    commit_config(data_dir, slug, f"Update ignore rules for {slug}")
+    print(f"Added ignore rules to '{slug}'.")
+
+
 def provision_site(data_dir: str, target) -> str:
     url = target.get("url") if isinstance(target, dict) else str(target)
     if not url:
@@ -117,24 +194,25 @@ def provision_site(data_dir: str, target) -> str:
         return ""
     site_dir = os.path.join(data_dir, "sites", slug)
     config_path = os.path.join(site_dir, "website-stalker.yaml")
+    ignores = ignore_editors(target, slug)
 
     if os.path.exists(config_path):
         print(f"Site '{slug}' already provisioned.")
+        if ignores:
+            sync_ignore_rules(data_dir, slug, config_path, ignores)
         return slug
 
     print(f"Provisioning new site '{slug}' (URL: {url})...")
     os.makedirs(site_dir, exist_ok=True)
 
-    # name/slug are G-I-T metadata; website-stalker rejects them.
-    extra = {k: v for k, v in target.items() if k not in ("name", "slug", "url", "tags")} if isinstance(target, dict) else {}
+    extra = {k: v for k, v in target.items() if k not in RESERVED_KEYS} if isinstance(target, dict) else {}
     site_cfg = {"url": url, **DEFAULT_SITE_OPTIONS, **extra}  # master config overrides defaults
+    if ignores:
+        site_cfg["editors"] = merge_editors(site_cfg.get("editors", []), ignores)
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump({"sites": [site_cfg]}, f, allow_unicode=True, sort_keys=False)
 
-    # Own commit, so the first stalker run only contains fetched content. Pushed later by website_stalk.py.
-    rel_config = f"sites/{slug}/website-stalker.yaml"
-    run_cmd(["git", "add", "--", rel_config], cwd=data_dir)
-    run_cmd(["git", "commit", "-m", f"Provision {slug}", "--only", "--", rel_config], cwd=data_dir)
+    commit_config(data_dir, slug, f"Provision {slug}")
     return slug
 
 
