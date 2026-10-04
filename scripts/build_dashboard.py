@@ -334,6 +334,22 @@ def commit_and_push_parent(data_dir: str) -> bool:
 
 # ---------------------------------------------------------------- build
 
+_GA_ID_RE = re.compile(r"^G-[A-Z0-9]{4,20}$")
+_CF_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def analytics_settings() -> dict:
+    """Analytics IDs from the environment. Empty / invalid values switch that service off."""
+    ga_id = (os.environ.get("GA_MEASUREMENT_ID") or "").strip()
+    cf_token = (os.environ.get("CF_BEACON_TOKEN") or "").strip()
+    if ga_id and not _GA_ID_RE.match(ga_id):
+        print(f"WARNING: GA_MEASUREMENT_ID {ga_id!r} does not look like G-XXXXXXXXXX; Google Analytics is off.")
+        ga_id = ""
+    if cf_token and not _CF_TOKEN_RE.match(cf_token):
+        print("WARNING: CF_BEACON_TOKEN has an unexpected format; Cloudflare Web Analytics is off.")
+        cf_token = ""
+    return {"ga_id": ga_id, "cf_token": cf_token, "enabled": bool(ga_id or cf_token)}
+
 def write(path: str, content: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -374,7 +390,8 @@ def main():
         site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
         site_search=lambda slug: site_by_slug.get(slug, {}).get("search", slug),
     )
-    env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE)
+    env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
+                       analytics=analytics_settings())
 
     generated = to_jst(datetime.now(timezone.utc))
     tags = build_tag_infos(sites)
@@ -414,6 +431,9 @@ def main():
 
     # About page (design philosophy + the one-picture explanation)
     write(os.path.join(public_dir, "about.html"), env.get_template("about.html").render(**common))
+
+    # Privacy and analytics notice (the text follows which analytics IDs are configured)
+    write(os.path.join(public_dir, "privacy.html"), env.get_template("privacy.html").render(**common))
 
     # Archive: everything older than the timeline, by week and by month
     months, weeks = group_periods(updates)

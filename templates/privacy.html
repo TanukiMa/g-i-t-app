@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "_macros.html" import nav, footer, status %}
+{% set root = '' %}{% set style = 'github' %}{% set page_title = 'プライバシーとアクセス解析 - G医t' %}
+{% block content %}
+  {{ nav('', root) }}
+  <header>
+    <h1>プライバシーとアクセス解析</h1>
+    {{ status(generated, sites, root) }}
+  </header>
+  <a class="page-back" href="index.html">← 全体タイムラインへ戻る</a>
+
+  <div class="prose">
+    <h2>基本の考え方</h2>
+    <p>G医t は、読者のお名前・メールアドレスなどの個人情報をお尋ねしません。ログインもありません。読者が付けた「フォロー」（☆）の選択は、お使いのブラウザの中にだけ保存され、G医t のサーバーにも、下記の外部サービスにも送られません。</p>
+
+    {% if analytics.enabled %}
+    <h2>アクセス解析について</h2>
+    <p>サイトがどのくらい読まれているか、どこから来られているか、表示が遅くないかを知り、サイトを改善するために、次のサービスを利用しています。</p>
+    <table>
+      <thead><tr><th>サービス</th><th>提供者</th><th>送信される情報</th><th>Cookie など</th></tr></thead>
+      <tbody>
+        {% if analytics.ga_id %}
+        <tr>
+          <td>Google アナリティクス 4（Google Analytics 4）</td>
+          <td>Google LLC（米国）</td>
+          <td>閲覧したページの URL（クエリ文字列を除く）とタイトル、閲覧日時、参照元、ブラウザ・端末の種類、おおよその地域、外部リンクのクリック</td>
+          <td>Cookie（<code>_ga</code> など）を使って、ブラウザを識別します</td>
+        </tr>
+        {% endif %}
+        {% if analytics.cf_token %}
+        <tr>
+          <td>Cloudflare Web Analytics</td>
+          <td>Cloudflare, Inc.（米国）</td>
+          <td>閲覧したページ、参照元、ブラウザ・端末の種類、ページの表示性能（読み込み時間など）</td>
+          <td>Cookie や localStorage を使いません（Cloudflare の説明による）</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+    <p><strong>送らない情報:</strong> フォロー中のサイトの一覧、共有リンクに含まれるフォロー設定（<code>?follow=…</code> の部分）、サイト内の検索ボックスに入力した文字。</p>
+    <p>各サービスでの情報の扱いは、提供者の説明をご覧ください。</p>
+    <ul>
+      {% if analytics.ga_id %}<li><a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener noreferrer">Google：パートナーのサイトやアプリのサービスを使用するときの Google によるデータ使用</a></li>{% endif %}
+      {% if analytics.cf_token %}<li><a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">Cloudflare：プライバシーポリシー</a></li>{% endif %}
+    </ul>
+
+    <h2>計測を止める（オプトアウト）</h2>
+    <p>アクセス解析は、既定で有効です。下のボタンで、いつでも停止できます。停止すると、このブラウザでは外部サービスへの送信を行わず、Google アナリティクスの Cookie も削除します。</p>
+    <div class="toggle-box">
+      <p><span data-analytics-status>この設定の表示には JavaScript が必要です。</span></p>
+      <button type="button" data-analytics-toggle hidden>アクセス解析を停止する</button>
+    </div>
+    <ul>
+      <li>ブラウザが <strong>Do Not Track</strong> または <strong>Global Privacy Control</strong> を送っている場合は、自動的に計測しません（上のボタンで「再開」を選んだ場合を除きます）。</li>
+      {% if analytics.ga_id %}<li>Google が提供する <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener noreferrer">Google アナリティクス オプトアウト アドオン</a>でも、停止できます。</li>{% endif %}
+      <li>ブラウザの設定で Cookie やサイトデータを削除すると、停止の選択も消えます。</li>
+    </ul>
+    {% else %}
+    <h2>アクセス解析について</h2>
+    <p>現在、このサイトはアクセス解析を使っていません。</p>
+    {% endif %}
+
+    <h2>ブラウザに保存するもの</h2>
+    <p>G医t 自身は Cookie を使いません。次の設定を、お使いのブラウザの <code>localStorage</code> に保存します（キーは <code>g-i-t-data:v1:</code> で始まります）。</p>
+    <ul>
+      <li>フォロー中のサイトの一覧と、「すべて／フォロー中のみ」の選択</li>
+      {% if analytics.enabled %}<li>アクセス解析を停止・再開した選択</li>{% endif %}
+    </ul>
+
+    <h2>外部サイトへのリンク</h2>
+    <p>このサイトには、監視対象のサイト、Internet Archive（Wayback Machine）、GitHub などへのリンクがあります。リンク先での情報の扱いは、それぞれのサイトの規約やポリシーに従います。</p>
+
+    <h2>お問い合わせ・改定</h2>
+    <p>ご質問は <a href="https://github.com/TanukiMa/g-i-t-data/issues" target="_blank" rel="noopener noreferrer">GitHub の Issues</a> へお寄せください。この内容は、予告なく改定することがあります。制定：2026年10月4日。</p>
+  </div>
+  {{ footer() }}
+{% endblock %}

@@ -51,7 +51,7 @@ supabase db query --linked "select table_name from information_schema.tables whe
 |---|---|
 | 表示名（`name`）が更新されない | 手元でコミットしただけで、push していない。`git push` してから再実行する |
 | `AI要約を生成できませんでした。` | Gemini の一時的な失敗（503 など）や、無料枠の**1日の上限（RPD）**。自動で再試行し、次のモデルに移り、以降の実行で作り直される。上限は太平洋時間の0時（日本時間の16時または17時）にリセットされる。続くなら、`GEMINI_MODELS` にモデルを足すか、別プロバイダー（`LLM_FALLBACK_*`）を設定する。`404` はモデルの提供終了なので、`GEMINI_MODELS` から外す |
-| 毎回、リンクなどの同じ種類の差分が出る | セッションIDなど。`ignore` で消す（[設定リファレンス](Configuration)） |
+| 毎回、リンクなどの同じ種類の差分が出る | セッションIDなど。`ignore` で消す（[設定リファレンス](Configuration)）。WordPress の `file.pdf?数値` 形式は標準ルールで自動的に消える |
 | `PGRST205: Could not find the table` | Supabase の URL / KEY が別プロジェクトのもの、またはスキーマ未適用。`SUPABASE_URL` / `SUPABASE_KEY` を設定し直し、`sql/schema.sql` を適用する |
 | `website-stalker` が `from ... is invalid` | `WEBSITE_STALKER_FROM` が未設定、または `@` と `.` を含まない |
 | `WARNING: skipping ...: slug ...` | `slug` が `[a-z0-9][a-z0-9_-]*` ではない。直す |

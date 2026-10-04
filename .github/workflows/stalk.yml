@@ -67,6 +67,9 @@ jobs:
 
       - name: Execute Pipeline
         env:
+          # Optional access analytics (repository variables; empty = no tag is added to the pages)
+          GA_MEASUREMENT_ID: ${{ vars.GA_MEASUREMENT_ID }}
+          CF_BEACON_TOKEN: ${{ vars.CF_BEACON_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Optional (repository variables / secret; empty = defaults, see docs): model order and a second provider
           GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}

@@ -23,9 +23,10 @@ sites:
 | `slug` | | ID。**`[a-z0-9][a-z0-9_-]*` のみ**（ASCII の小文字・数字・`-`・`_`）。ディレクトリ名と URL になる。省略すると URL から自動生成する。違反するとそのサイトは作られず、ログに警告が出る |
 | `tags` | | 分類のリスト（文字列、`\|` は不可）。絞り込みと、分類別の Atom フィードに使う |
 | `ignore` | | 取得したページから消す（毎回変わる）文字列の正規表現のリスト |
+| `default_ignore` | | `false` にすると、**標準の除去ルール**（下記）をこのサイトに適用しない |
 | その他 | | `website-stalker.yaml` のサイト項目（`editors`、`headers` など）は、そのまま渡される |
 
-`name` / `slug` / `tags` / `ignore` は G医t 独自の項目で、`website-stalker.yaml` には**書き出されません**（website-stalker は未知のキーを拒否するため）。
+`name` / `slug` / `tags` / `ignore` / `default_ignore` は G医t 独自の項目で、`website-stalker.yaml` には**書き出されません**（website-stalker は未知のキーを拒否するため）。
 
 ## 標準の取得設定
 
@@ -62,6 +63,33 @@ sites:
 - **既存サイトに追加した場合**は、次回の実行時に `sites/<slug>/website-stalker.yaml` へ追記されます（`Update ignore rules for <slug>` というコミット）。他の部分は変わりません。その回だけ、保存済みの内容との差で、1回の「更新」が記録されます。
 - `config.yaml` から消しても、`website-stalker.yaml` からは自動では消えません。外すときは、手でそのファイルを編集するか、[リセット](Operations)してください。
 
+### 標準の除去ルール（全サイトに自動で適用）
+
+WordPress などは、静的ファイルへのリンクに、アクセスのたびに変わる数値を付けます（キャッシュ回避）。これが「更新」と誤検知される原因になるため、**次の形だけ**を、全サイトで自動的に消します。
+
+| 変更前 | 変更後 |
+|---|---|
+| `…/guide.pdf?1700000001` | `…/guide.pdf` |
+| `…/logo.png?ver=6.4.2` | `…/logo.png` |
+| `…/a.docx?t=1700000001` | `…/a.docx` |
+| `…/report.pdf?download=1`、`…/page.php?id=5` | **そのまま**（意味のあるクエリは消さない） |
+
+- 対象の拡張子：`pdf` `doc(x)` `xls(x)` `ppt(x)` `zip` `png` `jpg/jpeg` `gif` `webp` `svg` `ico` `css` `js`
+- 対象のクエリ：数字・バージョン（`6.4.2`）だけ、または `ver` `v` `t` `ts` `time` `timestamp` `rev` `cb` の値が数字・バージョンのもの
+- 既存のサイトにも、次回の実行で追記されます。**追記した回の変化は「更新」として記録されません**（`Re-baseline <slug> after ignore rule change` というコミットで、基準を取り直すだけ）。
+- 効かせたくないサイトは、`default_ignore: false` を書きます。
+
+### 全サイト共通の `ignore`（任意）
+
+`config.yaml` のトップレベルに `ignore:` を書くと、**全サイト**に追加で適用されます（標準ルールのあと、サイト別の `ignore` の前）。
+
+```yaml
+ignore:
+  - ';jsessionid=[0-9A-Fa-f]+'       # Java 系サーバーのセッションID
+sites:
+  - url: …
+```
+
 ## GitHub Secrets（g-i-t-app）
 
 | 名前 | 内容 |
@@ -89,3 +117,20 @@ gh secret list --repo TanukiMa/g-i-t-app
 | `ARCHIVE_BATCH_SIZE` | `20` | 1回のアーカイブ処理で保存する URL の最大件数 |
 | `ARCHIVE_INTERVAL_SEC` | `15` | 保存の間隔（秒） |
 | `SITE_BASE_URL` | `https://tanukima.github.io/g-i-t-data/` | Atom フィード内の絶対 URL の基準 |
+| `GA_MEASUREMENT_ID` | （未設定） | Google アナリティクス 4 の測定 ID（`G-XXXXXXXXXX`）。Variables に設定する。未設定または形式が違うと、Google のタグは出力されない |
+| `CF_BEACON_TOKEN` | （未設定） | Cloudflare Web Analytics のトークン。Variables に設定する。未設定または形式が違うと、Cloudflare のタグは出力されない |
+
+## アクセス解析の設定（任意）
+
+どちらも **GitHub の Variables**（Secrets ではありません。ページに公開される値です）に設定します。設定すると、次回の `stalk.yml` で全ページに組み込まれます。
+
+```powershell
+gh variable set GA_MEASUREMENT_ID --repo TanukiMa/g-i-t-app --body "G-XXXXXXXXXX"
+gh variable set CF_BEACON_TOKEN   --repo TanukiMa/g-i-t-app --body "<Cloudflare のトークン>"
+```
+
+1. **Google アナリティクス 4:** プロパティを作り、ウェブのデータストリーム（URL は `https://tanukima.github.io/g-i-t-data/`）を追加して、測定 ID（`G-` で始まる）を取得する。
+2. **Cloudflare Web Analytics:** ダッシュボードの Web Analytics で「サイトを追加」し、ホスト名を入れる。Cloudflare を経由していないサイトなので、表示されるスニペットの `data-cf-beacon` の `token` の値を使う。
+3. 組み込んだら、サイトの `プライバシーとアクセス解析` のページに、使っているサービスだけが表示されることを確認する。
+
+仕様：既定で計測する（オプトアウト）。読者が停止した場合や、ブラウザが Do Not Track / Global Privacy Control を送っている場合は、外部サービスの読み込み自体を行わない。URL の `?follow=…` は、Google には送らず（URL から除く）、Cloudflare のタグはその表示では読み込まない。実装は `static/analytics.js`。

@@ -7,6 +7,7 @@ import argparse
 from urllib.parse import urljoin, urlparse
 import requests
 import yaml
+import provision
 from bs4 import BeautifulSoup
 from common import SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE
 
@@ -276,8 +277,12 @@ def render_diff_html(commit_hash: str, data_dir: str, rel_site: str):
     return html.stdout
 
 
-def process_site(data_dir: str, site_slug: str):
-    """Stalk one site and commit its changes as one commit. Returns a pending log record or None."""
+def process_site(data_dir: str, site_slug: str, rebaseline: bool = False):
+    """Stalk one site and commit its changes as one commit. Returns a pending log record or None.
+
+    With rebaseline=True (the site's ignore rules were just changed) the resulting change is committed
+    without a summary, diff page, database row or archive request.
+    """
     rel_site = f"sites/{site_slug}"
     site_path = os.path.join(data_dir, "sites", site_slug)
     config_file = os.path.join(site_path, "website-stalker.yaml")
@@ -313,6 +318,10 @@ def process_site(data_dir: str, site_slug: str):
         return None
 
     git(["add", "-A", "--", rel_site], data_dir)
+    if rebaseline and not is_initial:
+        print(f"Ignore rules of {site_slug} changed in this run: committing the new baseline, not reporting an update.")
+        git(["commit", "-m", f"Re-baseline {site_slug} after ignore rule change", "--only", "--", rel_site], data_dir)
+        return None
     raw_diff = git(["diff", "--cached", "--", rel_site], data_dir).stdout
 
     # 3. AI Summarization (not for the initial snapshot: everything is "new")
@@ -366,10 +375,14 @@ def main():
 
     # Step 1: Run Provisioning (local only: creates sites/<slug>/website-stalker.yaml)
     print("=== Step 1: JIT Auto-Provisioning ===")
-    provision_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "provision.py")
-    prov = subprocess.run([sys.executable, provision_script, "--data-dir", args.data_dir])
-    if prov.returncode != 0:
-        print(f"Provisioning exited with {prov.returncode}")
+    try:
+        prov = provision.provision_all(args.data_dir)
+    except Exception as e:
+        print(f"Provisioning failed: {e}")
+        prov = {"new": [], "rules_changed": []}
+    # Sites whose ignore rules changed in this run: their stored pages change shape once (e.g. cache-busting
+    # numbers disappear). That is not an update of the site, so it is committed as a new baseline only.
+    rebaseline = set(prov["rules_changed"])
 
     # Step 2: One commit per changed site
     print("=== Step 2: Stalk & Process Sites ===")
@@ -379,7 +392,7 @@ def main():
         for entry in sorted(os.listdir(sites_dir)):
             if os.path.isdir(os.path.join(sites_dir, entry)):
                 try:
-                    record = process_site(args.data_dir, entry)
+                    record = process_site(args.data_dir, entry, rebaseline=entry in rebaseline)
                     if record:
                         pending.append(record)
                 except Exception as e:

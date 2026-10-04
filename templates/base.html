@@ -9,10 +9,12 @@
 <link rel="alternate" type="application/atom+xml" title="G医t 更新情報（すべて）" href="{{ root }}feeds/all.xml" />
 {% block head_extra %}{% endblock %}
 <script src="{{ root }}assets/app.js" defer></script>
+{% if analytics.enabled %}<script src="{{ root }}assets/analytics.js" defer data-ga="{{ analytics.ga_id }}" data-cf="{{ analytics.cf_token }}"></script>{% endif %}
 </head>
 <body>
 <main>
   {% block content %}{% endblock %}
 </main>
+<p class="legal"><a href="{{ root }}privacy.html">プライバシーとアクセス解析について</a></p>
 </body>
 </html>

@@ -107,24 +107,30 @@ def run_cmd(cmd, cwd=None):
 
 
 # G-I-T metadata in config.yaml; website-stalker rejects unknown keys, so these are never written out.
-RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore")
+RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "default_ignore")
+
+# Rules applied to EVERY site unless it sets `default_ignore: false`. WordPress (and many CMSs) append a
+# changing number to static files, e.g. file.pdf?1700000001 or logo.png?ver=6.4.2, which would otherwise be
+# reported as an update on every visit. Only a numeric / version value after a known file extension is
+# removed; other queries (page.php?id=5, file.pdf?download=1) are left alone.
+DEFAULT_IGNORE_RULES = [
+    {
+        "pattern": r"(\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|gif|webp|svg|ico|css|js))"
+                   r"\?(?:(?:ver|v|t|ts|time|timestamp|rev|cb)=)?[0-9][0-9.]*",
+        "replace": "$1",
+    },
+]
 
 # website-stalker uses the Rust `regex` crate: no look-around and no back-references.
 _UNSUPPORTED_REGEX = re.compile(r"\(\?<?[=!]|\\[1-9]")
 
 
-def ignore_editors(target, slug: str = "") -> list:
-    """`regex_replace` editors for a site's `ignore` rules in config.yaml.
+def rules_to_editors(rules, slug: str = "") -> list:
+    """`regex_replace` editors for a list of rules.
 
     Each rule is a pattern string (matches are removed) or {pattern, replace}. Invalid rules are skipped
     with a warning so one typo cannot break provisioning.
     """
-    rules = target.get("ignore") if isinstance(target, dict) else None
-    if not rules:
-        return []
-    if not isinstance(rules, list):
-        print(f"WARNING: {slug}: `ignore` must be a list; ignored.")
-        return []
     editors = []
     for rule in rules:
         if isinstance(rule, str):
@@ -147,6 +153,38 @@ def ignore_editors(target, slug: str = "") -> list:
     return editors
 
 
+def _rule_list(value, where: str) -> list:
+    if not value:
+        return []
+    if not isinstance(value, list):
+        print(f"WARNING: {where}: `ignore` must be a list; ignored.")
+        return []
+    return value
+
+
+def ignore_editors(target, slug: str = "") -> list:
+    """Editors for the site's own `ignore` rules in config.yaml."""
+    own = target.get("ignore") if isinstance(target, dict) else None
+    return rules_to_editors(_rule_list(own, slug), slug)
+
+
+def load_global_ignore(data_dir: str) -> list:
+    """Top-level `ignore:` of config.yaml: rules for every site."""
+    path = os.path.join(data_dir, "config.yaml")
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    return _rule_list(config.get("ignore") if isinstance(config, dict) else None, "config.yaml")
+
+
+def all_ignore_editors(target, slug: str = "", global_rules=None) -> list:
+    """Built-in rules (unless `default_ignore: false`), then config.yaml's global rules, then the site's own."""
+    use_defaults = not (isinstance(target, dict) and target.get("default_ignore") is False)
+    rules = (DEFAULT_IGNORE_RULES if use_defaults else []) + list(global_rules or [])
+    return rules_to_editors(rules, slug) + ignore_editors(target, slug)
+
+
 def merge_editors(editors: list, extra: list) -> list:
     """Insert `extra` editors before `html_sanitize` (else at the end), skipping ones already present."""
     merged = list(editors)
@@ -164,26 +202,34 @@ def commit_config(data_dir: str, slug: str, message: str):
     run_cmd(["git", "commit", "-m", message, "--only", "--", rel_config], cwd=data_dir)
 
 
-def sync_ignore_rules(data_dir: str, slug: str, config_path: str, wanted: list):
-    """Add missing `ignore` rules to an already provisioned site. Everything else in its YAML is kept."""
+def sync_ignore_rules(data_dir: str, slug: str, config_path: str, wanted: list, changed=None) -> bool:
+    """Add missing ignore rules to an already provisioned site. Everything else in its YAML is kept.
+
+    With `changed` (a list) the commit is left to the caller, which batches all sites into one commit;
+    otherwise the file is committed right away. Returns True when the file was changed.
+    """
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     try:
         site_cfg = cfg["sites"][0]
     except (TypeError, KeyError, IndexError):
         print(f"WARNING: {slug}: unexpected website-stalker.yaml layout; ignore rules not applied.")
-        return
+        return False
     merged = merge_editors(site_cfg.get("editors") or [], wanted)
     if merged == (site_cfg.get("editors") or []):
-        return
+        return False
     site_cfg["editors"] = merged
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f, allow_unicode=True, sort_keys=False)
-    commit_config(data_dir, slug, f"Update ignore rules for {slug}")
+    if changed is None:
+        commit_config(data_dir, slug, f"Update ignore rules for {slug}")
+    else:
+        changed.append(slug)
     print(f"Added ignore rules to '{slug}'.")
+    return True
 
 
-def provision_site(data_dir: str, target) -> str:
+def provision_site(data_dir: str, target, global_rules=None, changed=None) -> str:
     url = target.get("url") if isinstance(target, dict) else str(target)
     if not url:
         return ""
@@ -194,12 +240,12 @@ def provision_site(data_dir: str, target) -> str:
         return ""
     site_dir = os.path.join(data_dir, "sites", slug)
     config_path = os.path.join(site_dir, "website-stalker.yaml")
-    ignores = ignore_editors(target, slug)
+    ignores = all_ignore_editors(target, slug, global_rules)
 
     if os.path.exists(config_path):
         print(f"Site '{slug}' already provisioned.")
         if ignores:
-            sync_ignore_rules(data_dir, slug, config_path, ignores)
+            sync_ignore_rules(data_dir, slug, config_path, ignores, changed)
         return slug
 
     print(f"Provisioning new site '{slug}' (URL: {url})...")
@@ -216,18 +262,37 @@ def provision_site(data_dir: str, target) -> str:
     return slug
 
 
+def provision_all(data_dir: str) -> dict:
+    """Provision every site in config.yaml.
+
+    Returns {"new": [slugs created], "rules_changed": [slugs whose ignore rules were extended]}.
+    Rule updates of existing sites are committed together in ONE commit.
+    """
+    targets = parse_stalker_yaml(data_dir)
+    global_rules = load_global_ignore(data_dir)
+    print(f"Found {len(targets)} targets in master config.yaml.")
+    new, changed = [], []
+    for target in targets:
+        try:
+            slug = target_slug(target)
+            existed = bool(slug) and os.path.exists(os.path.join(data_dir, "sites", slug, "website-stalker.yaml"))
+            provision_site(data_dir, target, global_rules, changed)
+            if slug and not existed and os.path.exists(os.path.join(data_dir, "sites", slug, "website-stalker.yaml")):
+                new.append(slug)
+        except Exception as e:
+            print(f"Error provisioning target {target}: {e}")
+    if changed:
+        paths = [f"sites/{slug}/website-stalker.yaml" for slug in changed]
+        run_cmd(["git", "add", "--"] + paths, cwd=data_dir)
+        run_cmd(["git", "commit", "-m", f"Update ignore rules ({len(changed)} sites)", "--only", "--"] + paths, cwd=data_dir)
+    return {"new": new, "rules_changed": changed}
+
+
 def main():
     parser = argparse.ArgumentParser(description="JIT site provisioner for G-I-T")
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
     args = parser.parse_args()
-
-    targets = parse_stalker_yaml(args.data_dir)
-    print(f"Found {len(targets)} targets in master config.yaml.")
-    for target in targets:
-        try:
-            provision_site(args.data_dir, target)
-        except Exception as e:
-            print(f"Error provisioning target {target}: {e}")
+    provision_all(args.data_dir)
 
 
 if __name__ == "__main__":
