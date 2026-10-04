@@ -1,0 +1,6 @@
+# Keep config and scripts LF regardless of core.autocrlf.
+# sites/ (fetched snapshots) is intentionally not listed: its line endings must stay as fetched.
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
