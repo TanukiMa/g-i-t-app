@@ -7,14 +7,21 @@
 <link rel="stylesheet" href="{{ root }}assets/{{ style|default('github') }}.css" />
 <link rel="stylesheet" href="{{ root }}assets/common.css" />
 <link rel="alternate" type="application/atom+xml" title="G医t 更新情報（すべて）" href="{{ root }}feeds/all.xml" />
+<link rel="manifest" href="{{ root }}manifest.webmanifest" />
+<link rel="apple-touch-icon" href="{{ root }}assets/icons/apple-touch-icon.png" />
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="G医t" />
 {% block head_extra %}{% endblock %}
 <script src="{{ root }}assets/app.js" defer></script>
+<script src="{{ root }}assets/pwa.js" defer data-root="{{ root }}"></script>
 {% if analytics.enabled %}<script src="{{ root }}assets/analytics.js" defer data-ga="{{ analytics.ga_id }}" data-cf="{{ analytics.cf_token }}"></script>{% endif %}
 </head>
 <body>
 <main>
   {% block content %}{% endblock %}
 </main>
-<p class="legal"><a href="{{ root }}privacy.html">プライバシーとアクセス解析について</a></p>
+<p class="legal"><a href="{{ root }}privacy.html">プライバシーとアクセス解析について</a><span data-install hidden> ・ <button type="button" class="install-btn" data-install-button>📲 アプリとしてインストール</button></span></p>
 </body>
 </html>

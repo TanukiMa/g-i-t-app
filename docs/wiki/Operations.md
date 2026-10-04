@@ -58,6 +58,7 @@ supabase db query --linked "select table_name from information_schema.tables whe
 | `Node.js 20 is deprecated` の警告 | 古いアクションのバージョン。`actions/*` を最新のメジャーに上げる |
 | 700MB 超の警告（ログの `.git size`） | サイズが大きい。変化の多いサイトに `css_select` / `css_remove` / `ignore` を足してノイズを減らす |
 | リセット後も、古い更新（存在しないコミット）がダッシュボードに出る | ダッシュボードは **Supabase の行**から作られる。Git は空になっても、`updates` / `archive_queue` に古い行が残っている。件数を確認し、リセット時刻より前の行を消して再実行する（下記） |
+| 更新したはずなのに、古い画面が出る（アプリ／ブラウザ） | ページはネットワーク優先なので、通常は最新が出る。出ない場合は、ブラウザの開発者ツール → Application → Service Workers で「Unregister」と「Clear site data」を実行する |
 | リセット後にワークフローが動かない | 失敗した場合、無効のまま。`gh workflow enable` で戻す |
 | 更新が多いサイトの Wayback が「保存待ち」のまま | `archive.yml` が1回に20件・15秒間隔で処理している。時間が経てば進む。急ぐなら `ARCHIVE_BATCH_SIZE` を増やす |
 

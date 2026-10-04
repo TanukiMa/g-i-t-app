@@ -101,3 +101,7 @@ h1 .follow-btn { font-size: 0.8em; }
 .prose th { color: var(--muted); font-weight: 600; white-space: nowrap; }
 .toggle-box { border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem 1.1rem; margin: 1rem 0; }
 .toggle-box button { font: inherit; cursor: pointer; border: 1px solid var(--link); color: var(--link); background: transparent; border-radius: 2em; padding: 0.25em 1em; }
+
+/* ---- PWA ---- */
+.install-btn { font: inherit; font-size: inherit; color: var(--link); background: transparent; border: 1px solid var(--border); border-radius: 2em; padding: 0.1em 0.8em; cursor: pointer; }
+.install-btn:hover { border-color: var(--link); }

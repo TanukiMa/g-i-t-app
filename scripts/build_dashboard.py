@@ -357,6 +357,19 @@ def write(path: str, content: str):
     print(f"Generated {path}")
 
 
+def publish_root_files(src_dir: str, public_dir: str, build_id: str):
+    """Copy manifest.webmanifest / sw.js to the site root (a service worker only controls its own directory)."""
+    if not os.path.isdir(src_dir):
+        return
+    for name in os.listdir(src_dir):
+        path = os.path.join(src_dir, name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read().replace("__BUILD_ID__", build_id)
+        write(os.path.join(public_dir, name), text)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build static dashboard for G-I-T")
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
@@ -394,6 +407,7 @@ def main():
                        analytics=analytics_settings())
 
     generated = to_jst(datetime.now(timezone.utc))
+    build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
     tags = build_tag_infos(sites)
     base_url = os.environ.get("SITE_BASE_URL", SITE_BASE_URL)
     stats = {
@@ -403,9 +417,12 @@ def main():
     }
     common = dict(generated=generated, sites=sites, tags=tags, total_updates=len(updates))
 
-    # Stylesheets and script
+    # Stylesheets, scripts, icons ... -> assets/. static/root/ holds the files that must live at the site root.
     if os.path.isdir(static_dir):
-        shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True)
+        shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("root"))
+        publish_root_files(os.path.join(static_dir, "root"), public_dir, build_id)
+    write(os.path.join(public_dir, "offline.html"), env.get_template("offline.html").render())
 
     # Three views of the latest part of the timeline (GitHub-style / dashboard / minimal)
     timeline = updates[:TIMELINE_LIMIT]
