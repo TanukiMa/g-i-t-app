@@ -1,4 +1,4 @@
-{#- Shared building blocks for index / dashboard / minimal / site_detail. -#}
+{#- Shared building blocks for index / dashboard / minimal / sites / site_detail. -#}
 
 {% macro nav(current, root='') -%}
 <nav class="style-switch" aria-label="表示スタイル切り替え">
@@ -8,12 +8,18 @@
   </nav>
 {%- endmacro %}
 
-{#- Links shown: the diff page and the Wayback copy of the monitored URL itself. Documents linked from the page
-    are archived by archive_worker.py but not listed here.
-    diff_prefix: path from the current page to the site's directory ("sites/<slug>/" from the root, "" inside it). -#}
-{% macro entry(item, diff_prefix='') -%}
+{#- "生成: …" line with a link to the site overview. -#}
+{% macro status(generated, sites, root='') -%}
+<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">監視サイト一覧（{{ sites|length }}）</a></p>
+{%- endmacro %}
+
+{#- Links shown: the site's history page, the diff page and the Wayback copy of the monitored URL itself.
+    Documents linked from the page are archived by archive_worker.py but not listed here.
+    site_prefix: path from the current page to the site's directory ("sites/<slug>/" from the root,
+    "" inside it, in which case the history link is omitted). -#}
+{% macro entry(item, site_prefix='') -%}
 <section class="entry{% if item.summary == initial_summary %} entry--initial{% endif %}">
-      <h2>{{ item.created_at|jst }} — {{ item.site_slug }}</h2>
+      <h2>{{ item.created_at|jst }} — {% if site_prefix %}<a class="site-name" href="{{ site_prefix }}index.html">{{ item.site_slug|site_name }}</a>{% else %}{{ item.site_slug|site_name }}{% endif %}</h2>
       <ul>
         <li><a class="site-chip" href="{{ item.url }}" target="_blank" rel="noopener noreferrer" title="{{ item.url }}">{{ item.url|hostname }}</a></li>
       </ul>
@@ -22,13 +28,12 @@
       {%- set page = item.archives|selectattr('kind', 'equalto', 'page')|first %}
       {% set page_done = page and page.status == 'done' and page.archive_url %}
       {% set page_pending = page and page.status == 'pending' %}
-      {% if item.diff_file or page_done or page_pending %}
       <div class="links">
-        {% if item.diff_file %}<a href="{{ diff_prefix }}{{ item.diff_file }}">🔍 差分</a>{% endif %}
+        {% if site_prefix %}<a href="{{ site_prefix }}index.html">📜 このサイトの更新歴</a>{% endif %}
+        {% if item.diff_file %}<a href="{{ site_prefix }}{{ item.diff_file }}">🔍 差分</a>{% endif %}
         {% if page_done %}<a href="{{ page.archive_url }}" target="_blank" rel="noopener noreferrer">📦 Wayback Machine</a>
         {% elif page_pending %}<span>⏳ Wayback 保存待ち</span>{% endif %}
       </div>
-      {% endif %}
     </section>
 {%- endmacro %}
 

@@ -10,7 +10,8 @@ from urllib.parse import urlparse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
-from common import DATA_REPO_URL, SUMMARY_INITIAL
+from common import DATA_REPO_URL, SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE
+from provision import configured_sites
 
 try:
     from supabase import create_client, Client
@@ -103,6 +104,46 @@ def render_markdown(text) -> Markup:
     flush_para()
     close_lists()
     return Markup("".join(out))
+
+
+def excerpt(summary, limit: int = 90) -> str:
+    """One plain-text line of an AI summary for the site list ("" when there is nothing useful)."""
+    if not summary or summary in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
+        return ""
+    for raw in str(summary).splitlines():
+        line = re.sub(r"^\s*(?:[*+\-]|\d+[.)]|#{1,6})\s+", "", raw).replace("**", "").replace("`", "").strip()
+        if line:
+            return line if len(line) <= limit else line[: limit - 1] + "…"
+    return ""
+
+
+def build_site_infos(configured: list, updates: list) -> list:
+    """One record per monitored site (config order, then sites only known from old updates)."""
+    by_slug = {}
+    for u in updates:  # updates are newest first
+        by_slug.setdefault(u.get("site_slug"), []).append(u)
+
+    sites, seen = [], set()
+    for site in configured + [{"slug": s, "name": s, "url": (ups[0].get("url") or "")}
+                              for s, ups in by_slug.items() if s]:
+        slug = site["slug"]
+        if slug in seen:
+            continue
+        seen.add(slug)
+        ups = by_slug.get(slug, [])
+        real = [u for u in ups if u.get("summary") != SUMMARY_INITIAL]  # the first snapshot is not an "update"
+        wayback = next((a["archive_url"] for u in ups for a in u.get("archives", [])
+                        if a.get("kind") == "page" and a.get("status") == "done" and a.get("archive_url")), "")
+        sites.append({
+            **site,
+            "updates": ups,
+            "count": len(real),
+            "first": to_jst(ups[-1]["created_at"], with_suffix=False)[:10] if ups else "",
+            "last": to_jst(real[0]["created_at"]) if real else "",
+            "excerpt": next((e for e in (excerpt(u.get("summary")) for u in real) if e), ""),
+            "wayback": wayback,
+        })
+    return sites
 
 
 # ---------------------------------------------------------------- data
@@ -210,7 +251,11 @@ def main():
 
     # Summaries derive from untrusted web content, so escape everything (render_markdown escapes first).
     env = Environment(loader=FileSystemLoader(templates_dir), autoescape=select_autoescape(["html"]))
-    env.filters.update(jst=to_jst, hostname=hostname, md=render_markdown)
+    sites = build_site_infos(configured_sites(args.data_dir), updates)
+    names = {s["slug"]: s["name"] for s in sites}
+
+    env.filters.update(jst=to_jst, hostname=hostname, md=render_markdown,
+                       site_name=lambda slug: names.get(slug, slug))
     env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL)
 
     generated = to_jst(datetime.now(timezone.utc))
@@ -226,20 +271,16 @@ def main():
 
     # Three views of the same timeline (GitHub-style / dashboard / minimal)
     for page in ROOT_PAGES:
-        rendered = env.get_template(page).render(updates=updates, stats=stats, generated=generated)
+        rendered = env.get_template(page).render(updates=updates, stats=stats, generated=generated, sites=sites)
         write(os.path.join(public_dir, page), rendered)
 
-    # Per-site history pages
-    sites_updates = {}
-    for update in updates:
-        slug = update.get("site_slug")
-        if slug:
-            sites_updates.setdefault(slug, []).append(update)
-
+    # Overview of every monitored site, and one history page per site (also for sites without updates yet)
+    write(os.path.join(public_dir, "sites.html"),
+          env.get_template("sites.html").render(sites=sites, generated=generated))
     site_template = env.get_template("site_detail.html")
-    for slug, site_upds in sites_updates.items():
-        rendered = site_template.render(site_slug=slug, updates=site_upds, generated=generated)
-        write(os.path.join(public_dir, "sites", slug, "index.html"), rendered)
+    for site in sites:
+        rendered = site_template.render(site=site, updates=site["updates"], generated=generated, sites=sites)
+        write(os.path.join(public_dir, "sites", site["slug"], "index.html"), rendered)
 
     if not commit_and_push_parent(args.data_dir):
         sys.exit(1)

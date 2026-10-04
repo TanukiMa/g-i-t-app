@@ -69,6 +69,33 @@ def parse_stalker_yaml(data_dir: str):
     return targets
 
 
+# slug becomes a directory name and a URL path segment: ASCII only, no surprises across OSes/Git.
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def target_slug(target) -> str:
+    """Explicit `slug` or one generated from the URL ("" when the target has no URL)."""
+    url = target.get("url") if isinstance(target, dict) else str(target)
+    if not url:
+        return ""
+    if isinstance(target, dict) and target.get("slug"):
+        return str(target["slug"])
+    return generate_slug(url)
+
+
+def configured_sites(data_dir: str) -> list:
+    """[{slug, name, url}] for every valid target in config.yaml; `name` falls back to the host name."""
+    sites = []
+    for target in parse_stalker_yaml(data_dir):
+        slug = target_slug(target)
+        if not slug or not SLUG_RE.match(slug):
+            continue
+        url = target.get("url") if isinstance(target, dict) else str(target)
+        name = (target.get("name") if isinstance(target, dict) else None) or urlparse(url).netloc.removeprefix("www.")
+        sites.append({"slug": slug, "name": str(name), "url": url})
+    return sites
+
+
 def run_cmd(cmd, cwd=None):
     print(f"Executing in {cwd or '.'}: {' '.join(cmd)}")
     res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -82,7 +109,10 @@ def provision_site(data_dir: str, target) -> str:
     if not url:
         return ""
 
-    slug = target.get("slug") if isinstance(target, dict) and target.get("slug") else generate_slug(url)
+    slug = target_slug(target)
+    if not SLUG_RE.match(slug):
+        print(f"WARNING: skipping {url}: slug {slug!r} must match {SLUG_RE.pattern} (ASCII lowercase letters, digits, - and _).")
+        return ""
     site_dir = os.path.join(data_dir, "sites", slug)
     config_path = os.path.join(site_dir, "website-stalker.yaml")
 

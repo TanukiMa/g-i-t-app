@@ -1,4 +1,4 @@
-{% from "_macros.html" import nav, entry, footer %}<!doctype html>
+{% from "_macros.html" import nav, entry, footer, status %}<!doctype html>
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
@@ -11,7 +11,7 @@
   {{ nav('dashboard') }}
   <header>
     <h1>G医t</h1>
-    <p id="status">生成: {{ generated }}</p>
+    {{ status(generated, sites) }}
   </header>
   <div class="stats" id="stats">
     <div class="stat">

@@ -171,3 +171,8 @@
 .entry .links span { color: var(--muted); }
 .entry--initial .summary { color: var(--muted); }
 .page-back { display: inline-block; margin-bottom: 1.25rem; font-size: 0.85em; }
+.entry .site-name { color: inherit; text-decoration: none; }
+.entry .site-name:hover { color: var(--link); text-decoration: underline; }
+.section-title { font-size: 0.9rem; font-weight: 600; color: var(--muted); margin: 1.75rem 0 0.75rem; }
+.entry--overview p { margin: 0 0 0.5rem; }
+#status a { color: inherit; }
