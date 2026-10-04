@@ -108,7 +108,10 @@ try {
     Write-Host "対象リポジトリ : $DataRepo  ($DataDir)"
     Write-Host "残すファイル   : $($keepExisting -join ', ')"
     Write-Host "削除するもの   : $($toDelete -join ', ')  + 全コミット履歴 (main を force push)"
-    Write-Host "Supabase       : $(if ($SkipSupabase) { '変更しない' } else { 'updates / archive_queue を truncate' })"
+    $linkedRef = $null
+    $refFile = Join-Path $AppRoot 'supabase\.temp\project-ref'
+    if (Test-Path -LiteralPath $refFile) { $linkedRef = (Get-Content -LiteralPath $refFile -Raw).Trim() }
+    Write-Host "Supabase       : $(if ($SkipSupabase) { '変更しない' } else { 'updates / archive_queue を truncate (リンク先プロジェクト: ' + $(if ($linkedRef) { $linkedRef } else { '不明' }) + ')' })"
     Write-Host "ワークフロー   : $(if ($SkipWorkflows) { '変更しない' } else { ($Workflows -join ', ') + ' を一時的に無効化' })"
     Write-Host "バックアップ   : $(if ($NoBackup) { 'なし' } else { 'あり (mirror clone)' })"
     Write-Host ''
@@ -148,6 +151,19 @@ try {
     # ---- 5. Supabase ----
     if (-not $SkipSupabase) {
         Exec supabase @('db', 'query', '--linked', 'truncate updates, archive_queue restart identity;') -WorkDir $AppRoot -Mutating | Out-Null
+        if (-not $DryRun) {
+            # Do not trust the exit code alone: the dashboard is built from these tables, so rows left behind
+            # would keep showing commits that no longer exist. ASCII marker -> independent of the console encoding.
+            $sql = "select 'COUNTS ' || (select count(*) from updates) || ' ' || (select count(*) from archive_queue) as c;"
+            $check = Exec supabase @('db', 'query', '--linked', $sql) -WorkDir $AppRoot
+            if ($check -notmatch 'COUNTS (\d+) (\d+)') {
+                throw "Supabase の件数を確認できませんでした。次を実行して、updates と archive_queue が空か確認してください:`n  supabase db query --linked `"$sql`"`n出力: $check"
+            }
+            if ([int]$Matches[1] -ne 0 -or [int]$Matches[2] -ne 0) {
+                throw "truncate の後も行が残っています (updates=$($Matches[1]), archive_queue=$($Matches[2]))。リンク先のプロジェクトが SUPABASE_URL のものと同じか確認してください。"
+            }
+            Write-Host "Supabase: updates / archive_queue は空です。" -ForegroundColor Green
+        }
     }
 
     # ---- 6. ワークフローを再開 ----

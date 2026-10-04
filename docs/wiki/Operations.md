@@ -36,7 +36,7 @@ supabase db query --linked "select table_name from information_schema.tables whe
 .\scripts\reset-data.ps1 -DryRun     # 何も変えずに、実行内容だけを表示
 .\scripts\reset-data.ps1             # リポジトリ名の入力を求められる
 ```
-流れ：事前チェック → バックアップ（mirror clone）→ ワークフローを無効化 → `g-i-t-data` の履歴を作り直して force push（`config.yaml` / `README.md` / `.gitignore` だけを残す）→ Supabase の2テーブルを空にする → ワークフローを有効化（`-Run` で実行まで）。
+流れ：事前チェック → バックアップ（mirror clone）→ ワークフローを無効化 → `g-i-t-data` の履歴を作り直して force push（`config.yaml` / `README.md` / `.gitignore` だけを残す）→ Supabase の2テーブルを空にする（**空になったことを件数で確認し、残っていれば停止**します。リンク先のプロジェクトも表示されるので、`SUPABASE_URL` のものと同じか確認してください）→ ワークフローを有効化（`-Run` で実行まで）。
 
 - 未コミットの変更があると止まります。先にコミットか破棄をしてください。
 - 途中で失敗したときは、ワークフローを**無効のまま**にします。状態を確認してから `gh workflow enable stalk.yml --repo TanukiMa/g-i-t-app`（`archive.yml` も同様）で戻してください。
@@ -57,5 +57,23 @@ supabase db query --linked "select table_name from information_schema.tables whe
 | `WARNING: skipping ...: slug ...` | `slug` が `[a-z0-9][a-z0-9_-]*` ではない。直す |
 | `Node.js 20 is deprecated` の警告 | 古いアクションのバージョン。`actions/*` を最新のメジャーに上げる |
 | 700MB 超の警告（ログの `.git size`） | サイズが大きい。変化の多いサイトに `css_select` / `css_remove` / `ignore` を足してノイズを減らす |
+| リセット後も、古い更新（存在しないコミット）がダッシュボードに出る | ダッシュボードは **Supabase の行**から作られる。Git は空になっても、`updates` / `archive_queue` に古い行が残っている。件数を確認し、リセット時刻より前の行を消して再実行する（下記） |
 | リセット後にワークフローが動かない | 失敗した場合、無効のまま。`gh workflow enable` で戻す |
 | 更新が多いサイトの Wayback が「保存待ち」のまま | `archive.yml` が1回に20件・15秒間隔で処理している。時間が経てば進む。急ぐなら `ARCHIVE_BATCH_SIZE` を増やす |
+
+### リセット後も古い更新が表示されるとき
+
+```powershell
+# 1) 残っている行を確認（oldest がリセット前なら、消えていない）
+supabase db query --linked "select count(*) as n, min(created_at) as oldest, max(created_at) as newest from updates;"
+supabase db query --linked "select count(*) as n, min(created_at) as oldest from archive_queue;"
+
+# 2) リセット時刻（g-i-t-data の最初のコミットの時刻。UTC）より前の行だけを消す
+git -C ..\g-i-t-data log --reverse --format=%aI -1      # 例: 2026-10-04T23:59:14+09:00 → UTC では 14:59:14Z
+supabase db query --linked "delete from archive_queue where created_at < '2026-10-04T14:59:14Z';"
+supabase db query --linked "delete from updates       where created_at < '2026-10-04T14:59:14Z';"
+
+# 3) ダッシュボードを作り直す
+gh workflow run stalk.yml --repo TanukiMa/g-i-t-app
+```
+全部消してよければ、`truncate updates, archive_queue restart identity;` でも構いません。
