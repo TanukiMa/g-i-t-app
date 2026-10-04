@@ -81,3 +81,14 @@ h1 .follow-btn { font-size: 0.8em; }
   .row-list .row { grid-template-columns: 3.2em 1fr; }
   .row-list .row .row-text, .row-list .row .row-link { grid-column: 2; }
 }
+
+/* ---- About page ---- */
+.prose h2 { font-size: 1.15rem; margin: 2rem 0 0.75rem; }
+.prose p, .prose li, .prose dd { line-height: 1.85; }
+.prose .diagram { margin: 1rem 0; text-align: center; }
+.prose .diagram img { max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 12px; }
+.prose .diagram figcaption { color: var(--muted); font-size: 0.85em; margin-top: 0.5rem; }
+.legend { display: grid; grid-template-columns: minmax(8em, 12em) 1fr; gap: 0.5rem 1rem; margin: 0; }
+.legend dt { font-weight: 600; }
+.legend dd { margin: 0; color: var(--muted); }
+@media (max-width: 560px) { .legend { grid-template-columns: 1fr; gap: 0.1rem; } .legend dd { margin-bottom: 0.6rem; } }

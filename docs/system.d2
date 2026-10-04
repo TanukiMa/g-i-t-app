@@ -1,0 +1,110 @@
+# G医t を1枚で説明する図 (ELI5: ぜんぜん知らない人にも分かるように)
+#
+# 描画: pwsh scripts/render-diagram.ps1
+#       (= d2 --theme 0 --dark-theme 200 --pad 24 docs/system.d2 static/system.svg)
+#
+# 読み方: 2列 x 4段を、ヘビのように 上から下へ進む。
+#   ① ホームページ  ->  ② 見はりロボット
+#                            |
+#   ④ AI          <-  ③ ノート
+#      |
+#   ⑤ しゃしん      ->  ⑥ きろくだな
+#                            |
+#   ⑧ あなた        <-  ⑦ けいじばん
+
+direction: down
+
+classes: {
+  step: {
+    style: {
+      border-radius: 16
+      stroke-width: 2
+      font-size: 22
+      font-color: "#1f2937"
+    }
+  }
+  arrow: {
+    style: {
+      stroke-width: 3
+      font-size: 18
+    }
+  }
+}
+
+title: |md
+  # G医t は「ホームページの まちがいさがし」ロボットです
+| {
+  near: top-center
+}
+
+flow: {
+  label: ""
+  grid-rows: 4
+  grid-columns: 2
+  horizontal-gap: 150
+  vertical-gap: 80
+  style: {
+    fill: transparent
+    stroke: transparent
+  }
+
+  # ---- 1段め (左 -> 右) ----
+  sites: "① 病院・学会・\n役所の ホームページ\n（約200か所）" {
+    class: step
+    shape: cloud
+    style.fill: "#dbeafe"
+    style.stroke: "#4a7fb5"
+  }
+  robot: "② 見はりロボット\n\nまいにち\n見に いくよ" {
+    class: step
+    style.fill: "#fef3c7"
+    style.stroke: "#d4a017"
+  }
+
+  # ---- 2段め (右 -> 左) ----
+  ai: "④ AI (Gemini)\n\n「ここが かわったよ」\nを 日本語で\nせつめいするよ" {
+    class: step
+    style.fill: "#ede0fa"
+    style.stroke: "#8a5cc2"
+  }
+  notebook: "③ ノート (Git)\n\n前と ちがう ところ\nだけ メモして\nとっておくよ" {
+    class: step
+    shape: page
+    style.fill: "#fde8d4"
+    style.stroke: "#c77d3a"
+  }
+
+  # ---- 3段め (左 -> 右) ----
+  photo: "⑤ むかしの しゃしん\n(Wayback Machine)\n\n消えても 見られる\nよう コピーを\nとっておくよ" {
+    class: step
+    shape: cylinder
+    style.fill: "#d8f3e2"
+    style.stroke: "#3c9a5f"
+  }
+  shelf: "⑥ きろくだな\n(Supabase)\n\nいつ・どこが\nかわったかを\nきれいに しまうよ" {
+    class: step
+    shape: stored_data
+    style.fill: "#dfe7f5"
+    style.stroke: "#5a6f96"
+  }
+
+  # ---- 4段め (右 -> 左) ----
+  you: "⑧ あなた\n\n🙂\n\n気になる サイトの\nへんかを 見つけるよ" {
+    class: step
+    style.fill: "#ffffff"
+    style.stroke: "#444444"
+  }
+  board: "⑦ けいじばん\n(G医t の ページ)\n\n⭐を つけた サイト\nだけ 見られるよ\n週・月ごとにも" {
+    class: step
+    style.fill: "#fde2e2"
+    style.stroke: "#d46a6a"
+  }
+
+  sites -> robot: "まいにち" {class: arrow}
+  robot -> notebook: "かわった？" {class: arrow}
+  notebook -> ai: "ちがい" {class: arrow}
+  ai -> photo: "ついでに" {class: arrow}
+  photo -> shelf: "ばしょ" {class: arrow}
+  shelf -> board: "ならべる" {class: arrow}
+  board -> you: "見る・\nAtom で通知" {class: arrow}
+}

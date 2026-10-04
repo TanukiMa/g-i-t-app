@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_macros.html" import nav, footer, status %}
+{% set root = '' %}{% set style = 'github' %}{% set page_title = 'G医tについて' %}
+{% set wiki = 'https://github.com/TanukiMa/g-i-t-data/wiki' %}
+{% block content %}
+  {{ nav('', root) }}
+  <header>
+    <h1>G医tについて</h1>
+    {{ status(generated, sites, root) }}
+  </header>
+  <a class="page-back" href="index.html">← 全体タイムラインへ戻る</a>
+
+  <div class="prose">
+    <h2>どんなプロジェクトか</h2>
+    <p>G医t（G-I-T）は、医師であるMatanuki氏が、医療・薬事・学会関連サイトの「本当に必要な更新」を正確に捉えるために設計・運用している個人プロジェクトです。</p>
+    <p>約{{ sites|length }}のサイトを毎時間見に行き、装飾や動的な部分を取り除いて「意味のあるコンテンツの変化」だけを Git に記録し、日本語で解説します。更新を検知したページは Wayback Machine にも保存します。営利を目的とせず、オープンに公開しています。</p>
+    <p>設計の考え方は <a href="{{ wiki }}/Design-Philosophy" target="_blank" rel="noopener noreferrer">Wiki の「設計思想」</a>に書いています。</p>
+
+    <h2>1枚でわかる G医t</h2>
+    <figure class="diagram">
+      <img src="assets/system.svg" alt="G医tのしくみ。①病院・学会・役所のホームページを、②見はりロボットが毎日見に行き、③ノート（Git）に前との違いだけを記録し、④AI（Gemini）が日本語で説明し、⑤Wayback Machineにコピーを残し、⑥記録だな（Supabase）に整理して、⑦けいじばん（このページ）に並べ、⑧あなたが見る。" loading="lazy" />
+    </figure>
+
+    <h2>画面の見かた</h2>
+    <dl class="legend">
+      <dt>追加 / 変更 / 削除</dt>
+      <dd>AI要約の各行の頭に付く印です。ページの内容が増えた・書き換わった・なくなった、を表します。</dd>
+      <dt>☆（星）</dt>
+      <dd>気になるサイトをフォローします。「フォロー中のみ」に切り替えると、そのサイトの更新だけが並びます。選択はお使いのブラウザの中にだけ保存され、サーバーには送られません。</dd>
+      <dt>🔍 差分</dt>
+      <dd>変更前と変更後を並べて見られます。AI要約を確かめたいときに使います。</dd>
+      <dt>📦 Wayback Machine</dt>
+      <dd>Internet Archive に保存された、監視対象ページのコピーです。保存には時間がかかることがあり、その間は「保存待ち」と表示されます。</dd>
+      <dt>📡 Atom</dt>
+      <dd>フィードリーダーで購読できます（すべて／サイトごと／分類ごと）。</dd>
+    </dl>
+    <p class="muted">時刻はすべて日本時間（JST）です。</p>
+
+    <h2>ご利用にあたって</h2>
+    <ul>
+      <li>AI要約は誤りや抜けを含むことがあります。重要な情報は、必ず「差分」または公式サイトの原文でご確認ください。</li>
+      <li>このサイトは公開されている情報の変化を記録するものです。診療・調剤・請求・法的な判断の根拠として、この内容だけに頼らないでください。</li>
+      <li>監視はおおむね1時間ごとです。更新の検知は、公式サイトでの公開より遅れることがあります。</li>
+    </ul>
+
+    <h2>もっと詳しく</h2>
+    <p>しくみ、設定、データ構造、運用は <a href="{{ wiki }}" target="_blank" rel="noopener noreferrer">Wiki</a> にまとめています。</p>
+    <ul>
+      <li><a href="{{ wiki }}/Design-Philosophy" target="_blank" rel="noopener noreferrer">設計思想</a> … なぜこう作ったか</li>
+      <li><a href="{{ wiki }}/Architecture" target="_blank" rel="noopener noreferrer">アーキテクチャ</a> … 構成と処理の流れ</li>
+      <li><a href="{{ wiki }}/Configuration" target="_blank" rel="noopener noreferrer">設定リファレンス</a> … <code>config.yaml</code> の書き方</li>
+      <li><a href="{{ wiki }}/Data-Model" target="_blank" rel="noopener noreferrer">データ構造</a> … 履歴の使い方（研究向け）</li>
+      <li>コード: <a href="https://github.com/TanukiMa/g-i-t-app" target="_blank" rel="noopener noreferrer">g-i-t-app</a> ・ データ: <a href="https://github.com/TanukiMa/g-i-t-data" target="_blank" rel="noopener noreferrer">g-i-t-data</a></li>
+    </ul>
+  </div>
+  {{ footer() }}
+{% endblock %}

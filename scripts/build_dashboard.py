@@ -412,6 +412,9 @@ def main():
             os.remove(legacy)
             print(f"Removed legacy {legacy}")
 
+    # About page (design philosophy + the one-picture explanation)
+    write(os.path.join(public_dir, "about.html"), env.get_template("about.html").render(**common))
+
     # Archive: everything older than the timeline, by week and by month
     months, weeks = group_periods(updates)
     write(os.path.join(public_dir, "archive", "index.html"),
