@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "_macros.html" import nav, entry, footer, status, filter_bar %}
+{% set root = '../' %}{% set style = 'github' %}{% set page_title = period.label ~ ' - G医t' %}
+{% block content %}
+  {{ nav('', root) }}
+  <header>
+    <h1>{{ period.label }}</h1>
+    {{ status(generated, sites, root) }}
+  </header>
+  <p class="pager">
+    <a class="page-back" href="index.html">← アーカイブ一覧</a>
+    {% if older %}<a href="{{ older.key }}.html">← {{ older.label }}</a>{% endif %}
+    {% if newer %}<a href="{{ newer.key }}.html">{{ newer.label }} →</a>{% endif %}
+  </p>
+  <p class="muted">{{ period.range }} ・ {{ period.count }} 件</p>
+  {{ filter_bar(tags) }}
+  <div id="content">
+    {% for item in period.updates %}
+    {{ entry(item, '../sites/' ~ item.site_slug ~ '/') }}
+    {% endfor %}
+  </div>
+  {{ footer() }}
+{% endblock %}

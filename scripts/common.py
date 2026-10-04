@@ -8,3 +8,10 @@ SUMMARY_UNAVAILABLE = "差分を取得できなかったため要約できませ
 SUMMARY_INITIAL = "初回取得: 監視を開始しました。次回以降の更新が差分として記録されます。"
 
 DATA_REPO_URL = "https://github.com/TanukiMa/g-i-t-data"
+
+# Absolute base URL of the published dashboard (needed for Atom feeds). Override with SITE_BASE_URL.
+SITE_BASE_URL = "https://tanukima.github.io/g-i-t-data/"
+
+TIMELINE_LIMIT = 200   # entries on index / dashboard / minimal; older ones live in site/week/month pages
+FEED_LIMIT_ALL = 100   # entries in the combined Atom feed
+FEED_LIMIT_SITE = 50   # entries in per-site / per-tag Atom feeds

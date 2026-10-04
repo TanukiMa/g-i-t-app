@@ -1,4 +1,4 @@
-{#- Shared building blocks for index / dashboard / minimal / sites / site_detail. -#}
+{#- Shared building blocks for every page. `root` is the relative path back to the site root ("", "../", "../../"). -#}
 
 {% macro nav(current, root='') -%}
 <nav class="style-switch" aria-label="表示スタイル切り替え">
@@ -8,18 +8,48 @@
   </nav>
 {%- endmacro %}
 
-{#- "生成: …" line with a link to the site overview. -#}
+{#- "生成: …" line with links to the site overview, the archive and the combined Atom feed. -#}
 {% macro status(generated, sites, root='') -%}
-<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">監視サイト一覧（{{ sites|length }}）</a></p>
+<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">監視サイト一覧（{{ sites|length }}）</a> ・ <a href="{{ root }}archive/index.html">アーカイブ</a> ・ <a href="{{ root }}feeds/all.xml" title="Atom フィード（すべて）">📡 Atom</a></p>
 {%- endmacro %}
 
-{#- Links shown: the site's history page, the diff page and the Wayback copy of the monitored URL itself.
-    Documents linked from the page are archived by archive_worker.py but not listed here.
+{#- Star button; hidden until app.js is running (it needs JavaScript). -#}
+{% macro follow_btn(slug) -%}
+<button type="button" class="follow-btn" data-follow="{{ slug }}" aria-pressed="false" title="フォローする" aria-label="{{ slug|site_name }} をフォロー" hidden>☆</button>
+{%- endmacro %}
+
+{#- Filter bar, shown by app.js. kind: 'timeline' (cards of updates) or 'sites' (site list, adds bulk buttons). -#}
+{% macro filter_bar(tags, kind='timeline') -%}
+<div class="filter-bar" id="filter-bar" data-kind="{{ kind }}" hidden>
+    <div class="seg" role="group" aria-label="表示対象">
+      <button type="button" data-mode="all" aria-pressed="true">すべて</button>
+      <button type="button" data-mode="followed" aria-pressed="false">フォロー中のみ（<span id="follow-count">0</span>）</button>
+    </div>
+    <input type="search" id="filter-q" placeholder="サイト名・ドメインで検索" aria-label="サイトを検索" />
+    {% if tags %}
+    <select id="filter-tag" aria-label="分類で絞り込む">
+      <option value="">すべての分類</option>
+      {% for t in tags %}<option value="{{ t.name }}">{{ t.name }}（{{ t.count }}）</option>{% endfor %}
+    </select>
+    {% endif %}
+    <span id="filter-count" class="filter-count" aria-live="polite"></span>
+    {% if kind == 'sites' %}
+    <button type="button" id="follow-visible" class="pill-btn" title="いま表示されているサイトをすべてフォロー">表示中をすべてフォロー</button>
+    <button type="button" id="unfollow-visible" class="pill-btn" title="いま表示されているサイトのフォローを外す">表示中のフォローを解除</button>
+    {% endif %}
+    <button type="button" id="share-btn" class="pill-btn" title="フォロー中のサイトを URL にして共有">🔗 フォロー設定を共有</button>
+  </div>
+  <p id="filter-empty" class="filter-empty" hidden>条件に合うものはありません。「すべて」に切り替えるか、検索条件を変えてください。</p>
+{%- endmacro %}
+
+{#- Full update card.
     site_prefix: path from the current page to the site's directory ("sites/<slug>/" from the root,
-    "" inside it, in which case the history link is omitted). -#}
+    "../sites/<slug>/" from archive/, "" inside the site's own page, where the history link is omitted).
+    Links shown: the site's history page, the diff page and the Wayback copy of the monitored URL itself;
+    documents linked from the page are archived by archive_worker.py but not listed. -#}
 {% macro entry(item, site_prefix='') -%}
-<section class="entry{% if item.summary == initial_summary %} entry--initial{% endif %}">
-      <h2>{{ item.created_at|jst }} — {% if site_prefix %}<a class="site-name" href="{{ site_prefix }}index.html">{{ item.site_slug|site_name }}</a>{% else %}{{ item.site_slug|site_name }}{% endif %}</h2>
+<section class="entry{% if item.summary == initial_summary %} entry--initial{% endif %}" data-site="{{ item.site_slug }}" data-tags="{{ item.site_slug|site_tags }}" data-search="{{ item.site_slug|site_search }}">
+      <h2>{{ item.created_at|jst }} — {% if site_prefix %}<a class="site-name" href="{{ site_prefix }}index.html">{{ item.site_slug|site_name }}</a>{% else %}{{ item.site_slug|site_name }}{% endif %} {{ follow_btn(item.site_slug) }}</h2>
       <ul>
         <li><a class="site-chip" href="{{ item.url }}" target="_blank" rel="noopener noreferrer" title="{{ item.url }}">{{ item.url|hostname }}</a></li>
       </ul>
@@ -35,6 +65,16 @@
         {% elif page_pending %}<span>⏳ Wayback 保存待ち</span>{% endif %}
       </div>
     </section>
+{%- endmacro %}
+
+{#- One compact line for month pages: time, site, one-line excerpt, history and diff links. -#}
+{% macro entry_row(item, root='') -%}
+<li class="row" data-site="{{ item.site_slug }}" data-tags="{{ item.site_slug|site_tags }}" data-search="{{ item.site_slug|site_search }}">
+        <time>{{ item.created_at|jst_hm }}</time>
+        <a class="site-name" href="{{ root }}sites/{{ item.site_slug }}/index.html">{{ item.site_slug|site_name }}</a>
+        <span class="row-text">{% if item.summary == initial_summary %}初回取得{% else %}{{ item.summary|excerpt or '更新を検知' }}{% endif %}</span>
+        {% if item.diff_file %}<a class="row-link" href="{{ root }}sites/{{ item.site_slug }}/{{ item.diff_file }}">差分</a>{% endif %}
+      </li>
 {%- endmacro %}
 
 {% macro footer() -%}

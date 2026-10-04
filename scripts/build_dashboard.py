@@ -1,3 +1,4 @@
+import hashlib
 import html
 import os
 import re
@@ -5,12 +6,14 @@ import sys
 import argparse
 import shutil
 import subprocess
-from datetime import datetime, timedelta, timezone
+import xml.etree.ElementTree as ET
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
-from common import DATA_REPO_URL, SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE
+from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SUMMARY_FAILED,
+                    SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT)
 from provision import configured_sites
 
 try:
@@ -136,6 +139,9 @@ def build_site_infos(configured: list, updates: list) -> list:
                         if a.get("kind") == "page" and a.get("status") == "done" and a.get("archive_url")), "")
         sites.append({
             **site,
+            "tags": site.get("tags", []),
+            "search": f"{site['name']} {hostname(site.get('url', ''))} {slug}".lower(),
+            "feed": f"feeds/{slug}.xml",
             "updates": ups,
             "count": len(real),
             "first": to_jst(ups[-1]["created_at"], with_suffix=False)[:10] if ups else "",
@@ -144,6 +150,112 @@ def build_site_infos(configured: list, updates: list) -> list:
             "wayback": wayback,
         })
     return sites
+
+
+def tag_id(tag: str) -> str:
+    """ASCII-safe id for a (possibly Japanese) tag; used in feed file names."""
+    return "tag-" + hashlib.sha1(tag.encode("utf-8")).hexdigest()[:8]
+
+
+def build_tag_infos(sites: list) -> list:
+    """[{name, id, count, feed}] sorted by name; count = number of sites carrying the tag."""
+    counts = {}
+    for site in sites:
+        for tag in site.get("tags", []):
+            counts[tag] = counts.get(tag, 0) + 1
+    return [{"name": t, "id": tag_id(t), "count": n, "feed": f"feeds/{tag_id(t)}.xml"}
+            for t, n in sorted(counts.items())]
+
+
+def jst_datetime(value) -> datetime:
+    return parse_timestamp(value).astimezone(JST)
+
+
+def group_periods(updates: list):
+    """Group updates (newest first) by JST month and ISO week.
+
+    Returns (months, weeks): lists of {key, label, updates, count}, newest first.
+    """
+    months, weeks = {}, {}
+    for u in updates:
+        try:
+            dt = jst_datetime(u["created_at"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        mkey = f"{dt.year}-{dt.month:02d}"
+        iso = dt.isocalendar()
+        wkey = f"{iso[0]}-W{iso[1]:02d}"
+        months.setdefault(mkey, {"key": mkey, "label": f"{dt.year}年{dt.month}月", "updates": []})["updates"].append(u)
+        if wkey not in weeks:
+            monday = date.fromisocalendar(iso[0], iso[1], 1)
+            sunday = monday + timedelta(days=6)
+            weeks[wkey] = {"key": wkey, "label": f"{iso[0]}年第{iso[1]}週",
+                           "range": f"{monday.month}/{monday.day}〜{sunday.month}/{sunday.day}", "updates": []}
+        weeks[wkey]["updates"].append(u)
+
+    def finish(groups):
+        out = sorted(groups.values(), key=lambda g: g["key"], reverse=True)
+        for g in out:
+            g["count"] = len(g["updates"])
+        return out
+
+    return finish(months), finish(weeks)
+
+
+def group_by_day(updates: list) -> list:
+    """[(YYYY-MM-DD (曜), [updates])] newest first, JST days."""
+    youbi = "月火水木金土日"
+    days = {}
+    for u in updates:
+        dt = jst_datetime(u["created_at"])
+        days.setdefault(dt.date(), []).append(u)
+    return [(f"{d.isoformat()}（{youbi[d.weekday()]}）", ups) for d, ups in sorted(days.items(), reverse=True)]
+
+
+ATOM_NS = "http://www.w3.org/2005/Atom"
+ET.register_namespace("", ATOM_NS)
+
+
+def _atom(tag: str) -> str:
+    return f"{{{ATOM_NS}}}{tag}"
+
+
+def build_atom(title: str, feed_path: str, page_path: str, entries: list, names: dict, base_url: str) -> str:
+    """Atom 1.0 feed for the given updates (initial snapshots are not updates and are skipped)."""
+    base = base_url.rstrip("/") + "/"
+    host = urlparse(base).netloc or "g-i-t-data"
+    entries = [u for u in entries if u.get("summary") != SUMMARY_INITIAL]
+    stamps = [parse_timestamp(u["created_at"]) for u in entries]
+    updated = max(stamps) if stamps else datetime.now(timezone.utc)
+
+    feed = ET.Element(_atom("feed"))
+    ET.SubElement(feed, _atom("title")).text = title
+    ET.SubElement(feed, _atom("id")).text = f"tag:{host},2026:g-i-t-data/{feed_path}"
+    ET.SubElement(feed, _atom("updated")).text = updated.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ET.SubElement(feed, _atom("link"), rel="self", type="application/atom+xml", href=base + feed_path)
+    ET.SubElement(feed, _atom("link"), rel="alternate", type="text/html", href=base + page_path)
+    ET.SubElement(ET.SubElement(feed, _atom("author")), _atom("name")).text = "G医t"
+
+    for u, stamp in zip(entries, stamps):
+        slug = u.get("site_slug", "")
+        name = names.get(slug, slug)
+        line = excerpt(u.get("summary"))
+        entry = ET.SubElement(feed, _atom("entry"))
+        ET.SubElement(entry, _atom("title")).text = f"{name}: {line}" if line else f"{name}: 更新を検知"
+        ET.SubElement(entry, _atom("id")).text = f"tag:{host},2026:g-i-t-data/{slug}/{u.get('commit_hash', '')}"
+        ET.SubElement(entry, _atom("updated")).text = stamp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ET.SubElement(entry, _atom("link"), rel="alternate", type="text/html", href=f"{base}sites/{slug}/index.html")
+        links = [f'<a href="{html.escape(u.get("url", ""), quote=True)}">監視対象ページ</a>']
+        if u.get("diff_file"):
+            links.append(f'<a href="{base}sites/{slug}/{u["diff_file"]}">差分</a>')
+        for a in u.get("archives", []):
+            if a.get("kind") == "page" and a.get("status") == "done" and a.get("archive_url"):
+                links.append(f'<a href="{html.escape(a["archive_url"], quote=True)}">Wayback Machine</a>')
+        body = str(render_markdown(u.get("summary"))) + "<p>" + " ・ ".join(links) + "</p>"
+        ET.SubElement(entry, _atom("content"), type="html").text = body
+
+    ET.indent(feed)
+    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(feed, encoding="unicode") + "\n"
 
 
 # ---------------------------------------------------------------- data
@@ -254,33 +366,70 @@ def main():
     sites = build_site_infos(configured_sites(args.data_dir), updates)
     names = {s["slug"]: s["name"] for s in sites}
 
-    env.filters.update(jst=to_jst, hostname=hostname, md=render_markdown,
-                       site_name=lambda slug: names.get(slug, slug))
+    site_by_slug = {s_["slug"]: s_ for s_ in sites}
+    env.filters.update(
+        jst=to_jst, hostname=hostname, md=render_markdown, excerpt=excerpt,
+        jst_hm=lambda v: to_jst(v, with_suffix=False)[11:],
+        site_name=lambda slug: names.get(slug, slug),
+        site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
+        site_search=lambda slug: site_by_slug.get(slug, {}).get("search", slug),
+    )
     env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL)
 
     generated = to_jst(datetime.now(timezone.utc))
+    tags = build_tag_infos(sites)
+    base_url = os.environ.get("SITE_BASE_URL", SITE_BASE_URL)
     stats = {
         "updates": len(updates),
         "sites": len({u["site_slug"] for u in updates if u.get("site_slug")}),
         "latest": to_jst(updates[0]["created_at"], with_suffix=False)[:10] if updates else "-",
     }
+    common = dict(generated=generated, sites=sites, tags=tags, total_updates=len(updates))
 
-    # Stylesheets
+    # Stylesheets and script
     if os.path.isdir(static_dir):
         shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True)
 
-    # Three views of the same timeline (GitHub-style / dashboard / minimal)
+    # Three views of the latest part of the timeline (GitHub-style / dashboard / minimal)
+    timeline = updates[:TIMELINE_LIMIT]
     for page in ROOT_PAGES:
-        rendered = env.get_template(page).render(updates=updates, stats=stats, generated=generated, sites=sites)
+        rendered = env.get_template(page).render(
+            updates=timeline, stats=stats, limit=TIMELINE_LIMIT, truncated=len(updates) > TIMELINE_LIMIT, **common)
         write(os.path.join(public_dir, page), rendered)
 
     # Overview of every monitored site, and one history page per site (also for sites without updates yet)
-    write(os.path.join(public_dir, "sites.html"),
-          env.get_template("sites.html").render(sites=sites, generated=generated))
+    write(os.path.join(public_dir, "sites.html"), env.get_template("sites.html").render(**common))
     site_template = env.get_template("site_detail.html")
     for site in sites:
-        rendered = site_template.render(site=site, updates=site["updates"], generated=generated, sites=sites)
+        rendered = site_template.render(site=site, updates=site["updates"], **common)
         write(os.path.join(public_dir, "sites", site["slug"], "index.html"), rendered)
+
+    # Archive: everything older than the timeline, by week and by month
+    months, weeks = group_periods(updates)
+    write(os.path.join(public_dir, "archive", "index.html"),
+          env.get_template("archive_index.html").render(months=months, weeks=weeks, **common))
+    for i, week in enumerate(weeks):
+        write(os.path.join(public_dir, "archive", f"{week['key']}.html"),
+              env.get_template("archive_week.html").render(
+                  period=week, newer=weeks[i - 1] if i > 0 else None,
+                  older=weeks[i + 1] if i + 1 < len(weeks) else None, **common))
+    for i, month in enumerate(months):
+        write(os.path.join(public_dir, "archive", f"{month['key']}.html"),
+              env.get_template("archive_month.html").render(
+                  period=month, days=group_by_day(month["updates"]), newer=months[i - 1] if i > 0 else None,
+                  older=months[i + 1] if i + 1 < len(months) else None, **common))
+
+    # Atom feeds: all sites, per site, per tag
+    write(os.path.join(public_dir, "feeds", "all.xml"),
+          build_atom("G医t 更新情報（すべて）", "feeds/all.xml", "index.html", updates[:FEED_LIMIT_ALL], names, base_url))
+    for site in sites:
+        write(os.path.join(public_dir, "feeds", f"{site['slug']}.xml"),
+              build_atom(f"G医t {site['name']}", site["feed"], f"sites/{site['slug']}/index.html",
+                         site["updates"][:FEED_LIMIT_SITE], names, base_url))
+    for tag in tags:
+        tagged = [u for u in updates if tag["name"] in site_by_slug.get(u.get("site_slug"), {}).get("tags", [])]
+        write(os.path.join(public_dir, "feeds", f"{tag['id']}.xml"),
+              build_atom(f"G医t 分類: {tag['name']}", tag["feed"], "sites.html", tagged[:FEED_LIMIT_SITE], names, base_url))
 
     if not commit_and_push_parent(args.data_dir):
         sys.exit(1)

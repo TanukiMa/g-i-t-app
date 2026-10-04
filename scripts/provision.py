@@ -84,7 +84,7 @@ def target_slug(target) -> str:
 
 
 def configured_sites(data_dir: str) -> list:
-    """[{slug, name, url}] for every valid target in config.yaml; `name` falls back to the host name."""
+    """[{slug, name, url, tags}] for every valid target in config.yaml; `name` falls back to the host name."""
     sites = []
     for target in parse_stalker_yaml(data_dir):
         slug = target_slug(target)
@@ -92,7 +92,9 @@ def configured_sites(data_dir: str) -> list:
             continue
         url = target.get("url") if isinstance(target, dict) else str(target)
         name = (target.get("name") if isinstance(target, dict) else None) or urlparse(url).netloc.removeprefix("www.")
-        sites.append({"slug": slug, "name": str(name), "url": url})
+        raw_tags = target.get("tags") if isinstance(target, dict) else None
+        tags = [str(t).strip() for t in raw_tags if str(t).strip() and "|" not in str(t)] if isinstance(raw_tags, list) else []
+        sites.append({"slug": slug, "name": str(name), "url": url, "tags": tags})
     return sites
 
 
@@ -124,7 +126,7 @@ def provision_site(data_dir: str, target) -> str:
     os.makedirs(site_dir, exist_ok=True)
 
     # name/slug are G-I-T metadata; website-stalker rejects them.
-    extra = {k: v for k, v in target.items() if k not in ("name", "slug", "url")} if isinstance(target, dict) else {}
+    extra = {k: v for k, v in target.items() if k not in ("name", "slug", "url", "tags")} if isinstance(target, dict) else {}
     site_cfg = {"url": url, **DEFAULT_SITE_OPTIONS, **extra}  # master config overrides defaults
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump({"sites": [site_cfg]}, f, allow_unicode=True, sort_keys=False)

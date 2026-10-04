@@ -15,12 +15,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout Code Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: app
 
       - name: Checkout Data Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: 'TanukiMa/g-i-t-data'
           token: ${{ secrets.GH_PAT }}
@@ -28,17 +28,17 @@ jobs:
           path: data
 
       - name: Setup Node.js (for diff2html)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install diff2html-cli
         run: npm install -g diff2html-cli
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       # Rebuild only when the fork changes: the cache key is its current HEAD commit.
       - name: Resolve website-stalker revision
@@ -47,7 +47,7 @@ jobs:
 
       - name: Cache website-stalker binary
         id: ws-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/website-stalker
           key: website-stalker-${{ runner.os }}-${{ steps.ws.outputs.sha }}

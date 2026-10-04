@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import nav, footer, status %}
+{% set root = '../' %}{% set style = 'github' %}{% set page_title = 'アーカイブ - G医t' %}
+{% block content %}
+  {{ nav('', root) }}
+  <header>
+    <h1>アーカイブ</h1>
+    {{ status(generated, sites, root) }}
+  </header>
+  <a class="page-back" href="../index.html">← 全体タイムラインへ戻る</a>
+  <p class="muted">全 {{ total_updates }} 件の更新を、週別（詳細）と月別（一覧）で見られます。時刻は JST、週は ISO 週（月曜始まり）です。</p>
+
+  {% if weeks %}
+  <h3 class="section-title">週別</h3>
+  <ul class="period-list">
+    {% for w in weeks %}
+    <li><a href="{{ w.key }}.html">{{ w.label }}</a> <span class="muted">{{ w.range }}</span> <span class="count">{{ w.count }} 件</span></li>
+    {% endfor %}
+  </ul>
+
+  <h3 class="section-title">月別</h3>
+  <ul class="period-list">
+    {% for m in months %}
+    <li><a href="{{ m.key }}.html">{{ m.label }}</a> <span class="count">{{ m.count }} 件</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>アーカイブはまだありません。</p>
+  {% endif %}
+  {{ footer() }}
+{% endblock %}

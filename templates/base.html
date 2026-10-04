@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ page_title }}</title>
+<link rel="stylesheet" href="{{ root }}assets/{{ style|default('github') }}.css" />
+<link rel="stylesheet" href="{{ root }}assets/common.css" />
+<link rel="alternate" type="application/atom+xml" title="G医t 更新情報（すべて）" href="{{ root }}feeds/all.xml" />
+{% block head_extra %}{% endblock %}
+<script src="{{ root }}assets/app.js" defer></script>
+</head>
+<body>
+<main>
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

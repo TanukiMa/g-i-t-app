@@ -1,0 +1,83 @@
+/* Shared by all styles. Uses only the variables every style defines: --bg --fg --muted --border --link. */
+
+/* `.entry { display: block }` would otherwise beat the UA rule for [hidden]. */
+[hidden] { display: none !important; }
+
+.muted { color: var(--muted); }
+.more { margin: 1.5rem 0; color: var(--muted); font-size: 0.9em; }
+
+/* ---- filter bar (revealed by app.js) ---- */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.6rem;
+  margin: 0 0 1.25rem;
+  font-size: 0.85rem;
+}
+.filter-bar .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 2em; overflow: hidden; }
+.filter-bar .seg button {
+  font: inherit; background: transparent; color: var(--muted); border: 0; padding: 0.3em 0.9em; cursor: pointer;
+}
+.filter-bar .seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600; }
+.filter-bar input[type="search"], .filter-bar select {
+  font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--border);
+  border-radius: 2em; padding: 0.3em 0.9em; min-width: 0;
+}
+.filter-bar input[type="search"] { flex: 1 1 12em; max-width: 20em; }
+.filter-bar .pill-btn {
+  font: inherit; color: var(--muted); background: transparent; border: 1px solid var(--border);
+  border-radius: 2em; padding: 0.3em 0.9em; cursor: pointer;
+}
+.filter-bar .pill-btn:hover, .filter-bar .seg button:hover { color: var(--link); border-color: var(--link); }
+.filter-count { color: var(--muted); margin-left: auto; }
+.filter-empty { color: var(--muted); }
+
+/* ---- follow star ---- */
+.follow-btn {
+  font: inherit; font-size: 1.05em; line-height: 1; background: none; border: 0; padding: 0 0.15em;
+  cursor: pointer; color: var(--muted); vertical-align: baseline;
+}
+.follow-btn:hover { color: #d4a017; }
+.follow-btn[aria-pressed="true"] { color: #d4a017; }
+h1 .follow-btn { font-size: 0.8em; }
+
+/* ---- shared-list banner ---- */
+.share-banner {
+  margin: 0 0 1rem; padding: 0.6rem 0.9rem; border: 1px solid var(--link); border-radius: 8px;
+  font-size: 0.85rem; display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; align-items: center;
+}
+.share-banner button {
+  font: inherit; color: var(--link); background: transparent; border: 1px solid var(--link);
+  border-radius: 2em; padding: 0.15em 0.8em; cursor: pointer;
+}
+
+/* ---- tags ---- */
+.tag {
+  display: inline-block; font-size: 0.78em; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 2em; padding: 0.05em 0.7em;
+}
+.tag-list { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; font-size: 0.85rem; margin: 0 0 1rem; }
+.tag-item { display: inline-flex; align-items: center; gap: 0.25em; }
+.tag-feed { text-decoration: none; }
+
+/* ---- archive ---- */
+.pager { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; font-size: 0.85rem; margin: 0 0 0.75rem; }
+.pager .page-back { margin: 0; }
+.period-list { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.35rem; }
+.period-list li { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: baseline; }
+.period-list .count { margin-left: auto; color: var(--muted); font-size: 0.85em; }
+.section-title.day { margin-top: 1.5rem; }
+.row-list { list-style: none; margin: 0 0 0.5rem; padding: 0; }
+.row-list .row {
+  display: grid; grid-template-columns: 3.2em minmax(6em, 14em) 1fr auto; gap: 0.5rem; align-items: baseline;
+  padding: 0.3rem 0; border-top: 1px solid var(--border); font-size: 0.9em;
+}
+.row-list .row time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.row-list .row .row-text { color: var(--muted); overflow-wrap: anywhere; }
+.row-list .row .site-name { color: inherit; font-weight: 600; text-decoration: none; }
+.row-list .row .row-link { font-size: 0.85em; }
+@media (max-width: 560px) {
+  .row-list .row { grid-template-columns: 3.2em 1fr; }
+  .row-list .row .row-text, .row-list .row .row-link { grid-column: 2; }
+}
