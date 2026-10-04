@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "_macros.html" import nav, entry, footer, status, follow_btn %}
-{% set root = '../../' %}{% set style = 'github' %}{% set page_title = site.name ~ ' - G医t' %}
+{% set root = '../../' %}{% set style = 'github' %}{% set page_title = site.name ~ ' の更新歴 - G医t' %}
 {% block head_extra %}<link rel="alternate" type="application/atom+xml" title="{{ site.name }} の更新" href="{{ root }}{{ site.feed }}" />{% endblock %}
 {% block content %}
   {{ nav('', root) }}
   <header>
-    <h1>{{ site.name }} {{ follow_btn(site.slug) }}</h1>
+    <h1>{{ site.name }} の更新歴 {{ follow_btn(site.slug) }}</h1>
     {{ status(generated, sites, root) }}
   </header>
   <a class="page-back" href="../../index.html">← 全体タイムラインへ戻る</a>

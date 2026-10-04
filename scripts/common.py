@@ -9,6 +9,9 @@ SUMMARY_INITIAL = "初回取得: 監視を開始しました。次回以降の�
 
 DATA_REPO_URL = "https://github.com/TanukiMa/g-i-t-data"
 
+# File name of a site's history page: public/sites/<slug>/history.html (index.html is reserved for the timelines).
+SITE_PAGE = "history.html"
+
 # Absolute base URL of the published dashboard (needed for Atom feeds). Override with SITE_BASE_URL.
 SITE_BASE_URL = "https://tanukima.github.io/g-i-t-data/"
 

@@ -49,7 +49,7 @@
     documents linked from the page are archived by archive_worker.py but not listed. -#}
 {% macro entry(item, site_prefix='') -%}
 <section class="entry{% if item.summary == initial_summary %} entry--initial{% endif %}" data-site="{{ item.site_slug }}" data-tags="{{ item.site_slug|site_tags }}" data-search="{{ item.site_slug|site_search }}">
-      <h2>{{ item.created_at|jst }} — {% if site_prefix %}<a class="site-name" href="{{ site_prefix }}index.html">{{ item.site_slug|site_name }}</a>{% else %}{{ item.site_slug|site_name }}{% endif %} {{ follow_btn(item.site_slug) }}</h2>
+      <h2>{{ item.created_at|jst }} — {% if site_prefix %}<a class="site-name" href="{{ site_prefix }}{{ site_page }}">{{ item.site_slug|site_name }}</a>{% else %}{{ item.site_slug|site_name }}{% endif %} {{ follow_btn(item.site_slug) }}</h2>
       <ul>
         <li><a class="site-chip" href="{{ item.url }}" target="_blank" rel="noopener noreferrer" title="{{ item.url }}">{{ item.url|hostname }}</a></li>
       </ul>
@@ -59,7 +59,7 @@
       {% set page_done = page and page.status == 'done' and page.archive_url %}
       {% set page_pending = page and page.status == 'pending' %}
       <div class="links">
-        {% if site_prefix %}<a href="{{ site_prefix }}index.html">📜 このサイトの更新歴</a>{% endif %}
+        {% if site_prefix %}<a href="{{ site_prefix }}{{ site_page }}">📜 このサイトの更新歴</a>{% endif %}
         {% if item.diff_file %}<a href="{{ site_prefix }}{{ item.diff_file }}">🔍 差分</a>{% endif %}
         {% if page_done %}<a href="{{ page.archive_url }}" target="_blank" rel="noopener noreferrer">📦 Wayback Machine</a>
         {% elif page_pending %}<span>⏳ Wayback 保存待ち</span>{% endif %}
@@ -71,7 +71,7 @@
 {% macro entry_row(item, root='') -%}
 <li class="row" data-site="{{ item.site_slug }}" data-tags="{{ item.site_slug|site_tags }}" data-search="{{ item.site_slug|site_search }}">
         <time>{{ item.created_at|jst_hm }}</time>
-        <a class="site-name" href="{{ root }}sites/{{ item.site_slug }}/index.html">{{ item.site_slug|site_name }}</a>
+        <a class="site-name" href="{{ root }}sites/{{ item.site_slug }}/{{ site_page }}">{{ item.site_slug|site_name }}</a>
         <span class="row-text">{% if item.summary == initial_summary %}初回取得{% else %}{{ item.summary|excerpt or '更新を検知' }}{% endif %}</span>
         {% if item.diff_file %}<a class="row-link" href="{{ root }}sites/{{ item.site_slug }}/{{ item.diff_file }}">差分</a>{% endif %}
       </li>

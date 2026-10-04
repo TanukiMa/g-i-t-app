@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
-from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SUMMARY_FAILED,
+from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, SUMMARY_FAILED,
                     SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT)
 from provision import configured_sites
 
@@ -244,7 +244,7 @@ def build_atom(title: str, feed_path: str, page_path: str, entries: list, names:
         ET.SubElement(entry, _atom("title")).text = f"{name}: {line}" if line else f"{name}: 更新を検知"
         ET.SubElement(entry, _atom("id")).text = f"tag:{host},2026:g-i-t-data/{slug}/{u.get('commit_hash', '')}"
         ET.SubElement(entry, _atom("updated")).text = stamp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        ET.SubElement(entry, _atom("link"), rel="alternate", type="text/html", href=f"{base}sites/{slug}/index.html")
+        ET.SubElement(entry, _atom("link"), rel="alternate", type="text/html", href=f"{base}sites/{slug}/{SITE_PAGE}")
         links = [f'<a href="{html.escape(u.get("url", ""), quote=True)}">監視対象ページ</a>']
         if u.get("diff_file"):
             links.append(f'<a href="{base}sites/{slug}/{u["diff_file"]}">差分</a>')
@@ -374,7 +374,7 @@ def main():
         site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
         site_search=lambda slug: site_by_slug.get(slug, {}).get("search", slug),
     )
-    env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL)
+    env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE)
 
     generated = to_jst(datetime.now(timezone.utc))
     tags = build_tag_infos(sites)
@@ -402,7 +402,15 @@ def main():
     site_template = env.get_template("site_detail.html")
     for site in sites:
         rendered = site_template.render(site=site, updates=site["updates"], **common)
-        write(os.path.join(public_dir, "sites", site["slug"], "index.html"), rendered)
+        write(os.path.join(public_dir, "sites", site["slug"], SITE_PAGE), rendered)
+
+    # Migration: site pages used to be sites/<slug>/index.html; drop the stale copies from public/.
+    sites_root = os.path.join(public_dir, "sites")
+    for entry in os.listdir(sites_root) if os.path.isdir(sites_root) else []:
+        legacy = os.path.join(sites_root, entry, "index.html")
+        if os.path.isfile(legacy):
+            os.remove(legacy)
+            print(f"Removed legacy {legacy}")
 
     # Archive: everything older than the timeline, by week and by month
     months, weeks = group_periods(updates)
@@ -424,7 +432,7 @@ def main():
           build_atom("G医t 更新情報（すべて）", "feeds/all.xml", "index.html", updates[:FEED_LIMIT_ALL], names, base_url))
     for site in sites:
         write(os.path.join(public_dir, "feeds", f"{site['slug']}.xml"),
-              build_atom(f"G医t {site['name']}", site["feed"], f"sites/{site['slug']}/index.html",
+              build_atom(f"G医t {site['name']}", site["feed"], f"sites/{site['slug']}/{SITE_PAGE}",
                          site["updates"][:FEED_LIMIT_SITE], names, base_url))
     for tag in tags:
         tagged = [u for u in updates if tag["name"] in site_by_slug.get(u.get("site_slug"), {}).get("tags", [])]
