@@ -150,17 +150,29 @@ try {
 
     # ---- 5. Supabase ----
     if (-not $SkipSupabase) {
+        # The dashboard is built from these tables, so rows left behind would keep showing commits that no longer
+        # exist. Never trust the exit code alone: count the rows afterwards (ASCII marker -> independent of the console encoding).
+        $countSql = "select 'COUNTS ' || (select count(*) from updates) || ' ' || (select count(*) from archive_queue) as c;"
+        function Get-SupabaseCounts {
+            $out = Exec supabase @('db', 'query', '--linked', $countSql) -WorkDir $AppRoot
+            if ($out -notmatch 'COUNTS (\d+) (\d+)') {
+                throw "Supabase の件数を確認できませんでした。次を実行して、updates と archive_queue が空か確認してください:`n  supabase db query --linked `"$countSql`"`n出力: $out"
+            }
+            return @([int]$Matches[1], [int]$Matches[2])
+        }
+
         Exec supabase @('db', 'query', '--linked', 'truncate updates, archive_queue restart identity;') -WorkDir $AppRoot -Mutating | Out-Null
         if (-not $DryRun) {
-            # Do not trust the exit code alone: the dashboard is built from these tables, so rows left behind
-            # would keep showing commits that no longer exist. ASCII marker -> independent of the console encoding.
-            $sql = "select 'COUNTS ' || (select count(*) from updates) || ' ' || (select count(*) from archive_queue) as c;"
-            $check = Exec supabase @('db', 'query', '--linked', $sql) -WorkDir $AppRoot
-            if ($check -notmatch 'COUNTS (\d+) (\d+)') {
-                throw "Supabase の件数を確認できませんでした。次を実行して、updates と archive_queue が空か確認してください:`n  supabase db query --linked `"$sql`"`n出力: $check"
+            $counts = Get-SupabaseCounts
+            if ($counts[0] -ne 0 -or $counts[1] -ne 0) {
+                # `truncate` reported success but removed nothing (seen with `supabase db query`): fall back to DELETE.
+                Write-Host "truncate では空になりませんでした (updates=$($counts[0]), archive_queue=$($counts[1]))。delete で空にします。" -ForegroundColor Yellow
+                Exec supabase @('db', 'query', '--linked', 'delete from archive_queue;') -WorkDir $AppRoot | Out-Null
+                Exec supabase @('db', 'query', '--linked', 'delete from updates;') -WorkDir $AppRoot | Out-Null
+                $counts = Get-SupabaseCounts
             }
-            if ([int]$Matches[1] -ne 0 -or [int]$Matches[2] -ne 0) {
-                throw "truncate の後も行が残っています (updates=$($Matches[1]), archive_queue=$($Matches[2]))。リンク先のプロジェクトが SUPABASE_URL のものと同じか確認してください。"
+            if ($counts[0] -ne 0 -or $counts[1] -ne 0) {
+                throw "Supabase の行が消えません (updates=$($counts[0]), archive_queue=$($counts[1]))。リンク先のプロジェクトが SUPABASE_URL のものと同じか、権限があるかを確認してください。"
             }
             Write-Host "Supabase: updates / archive_queue は空です。" -ForegroundColor Green
         }
