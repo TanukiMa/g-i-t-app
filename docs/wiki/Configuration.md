@@ -68,6 +68,7 @@ sites:
 |---|---|
 | `GH_PAT` | `g-i-t-data` への読み書き（fine-grained の `Contents: Read and write` で足りる）。ダッシュボードの公開にも使う |
 | `GEMINI_API_KEY` | Gemini API のキー |
+| `LLM_FALLBACK_KEY` | （任意）OpenAI 互換の別プロバイダーの API キー。Gemini が全部だめなときだけ使う |
 | `SUPABASE_URL` | Supabase のプロジェクト URL（`https://<REF>.supabase.co`、末尾に `/` を付けない） |
 | `SUPABASE_KEY` | Supabase の Secret key（`sb_secret_...`）。サーバー側専用。公開しない |
 | `WEBSITE_STALKER_FROM` | 連絡先メールアドレス。監視先サイトへの HTTP `From` ヘッダーとして送られる（`@` と `.` を含むこと） |
@@ -82,7 +83,8 @@ gh secret list --repo TanukiMa/g-i-t-app
 
 | 名前 | 既定 | 内容 |
 |---|---|---|
-| `GEMINI_MODEL` | `gemini-3.8-flash` | 要約に使うモデル。提供が終了したら変更する |
+| `GEMINI_MODELS` | `gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite` | 要約に使うモデルを、**優先順にカンマ区切り**で。無料枠の1日の上限（RPD）はモデルごとに数えられるため、1つが使い切りになると次のモデルに移る。リポジトリの Variables で設定する |
+| `LLM_FALLBACK_URL` / `LLM_FALLBACK_MODEL` | （未設定） | （任意）別プロバイダーの OpenAI 互換 API（`.../chat/completions` の URL とモデル名）。Variables で設定し、キーは Secrets の `LLM_FALLBACK_KEY` |
 | `SUMMARY_BACKFILL_LIMIT` | `10` | 1回の実行で作り直す、失敗した要約の最大件数（`0` で無効） |
 | `ARCHIVE_BATCH_SIZE` | `20` | 1回のアーカイブ処理で保存する URL の最大件数 |
 | `ARCHIVE_INTERVAL_SEC` | `15` | 保存の間隔（秒） |

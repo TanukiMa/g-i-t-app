@@ -68,6 +68,11 @@ jobs:
       - name: Execute Pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Optional (repository variables / secret; empty = defaults, see docs): model order and a second provider
+          GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}
+          LLM_FALLBACK_URL: ${{ vars.LLM_FALLBACK_URL }}
+          LLM_FALLBACK_MODEL: ${{ vars.LLM_FALLBACK_MODEL }}
+          LLM_FALLBACK_KEY: ${{ secrets.LLM_FALLBACK_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           # Contact address sent as the HTTP From header (required by website-stalker)

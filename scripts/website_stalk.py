@@ -5,6 +5,7 @@ import time
 import subprocess
 import argparse
 from urllib.parse import urljoin, urlparse
+import requests
 import yaml
 from bs4 import BeautifulSoup
 from common import SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE
@@ -19,11 +20,16 @@ try:
 except ImportError:
     create_client = None
 
-# Override without code changes when Google retires a model for new users.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-# Overload (503) and rate limits (429) are usually short-lived: retry with backoff.
+# Models are tried in order. Free-tier quotas (RPD) are tracked per model, so when one is used up
+# for the day the next one takes over. Override with GEMINI_MODELS="a,b,c" (or a single GEMINI_MODEL).
+DEFAULT_GEMINI_MODELS = "gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
+GEMINI_MODELS = [m.strip() for m in (os.environ.get("GEMINI_MODELS") or os.environ.get("GEMINI_MODEL")
+                                      or DEFAULT_GEMINI_MODELS).split(",") if m.strip()]
+# Overload (503) and per-minute rate limits (429) are usually short-lived: retry with backoff.
 GEMINI_TRANSIENT_CODES = (429, 500, 503, 504)
 GEMINI_RETRY_WAITS = [10, 30, 60]
+# Models that ran out of daily quota (or are not available to this key) during this run: not asked again.
+_unavailable_models = set()
 
 BACKFILL_LIMIT = int(os.environ.get("SUMMARY_BACKFILL_LIMIT", "10"))
 
@@ -68,31 +74,88 @@ def run_cmd(cmd, cwd=None, input_text=None):
     return res
 
 
+def _is_daily_quota(error) -> bool:
+    """A 429 caused by the per-day limit (waiting a minute will not help)."""
+    text = str(error)
+    return getattr(error, "code", None) == 429 and any(k in text for k in ("PerDay", "per day", "daily"))
+
+
+def _generate_with_gemini(client, model: str, contents: str, config: dict) -> str:
+    """One model: retry transient errors with backoff; a daily-quota error is raised immediately."""
+    for attempt, wait in enumerate(GEMINI_RETRY_WAITS + [None]):
+        try:
+            text = (client.models.generate_content(model=model, contents=contents, config=config).text or "").strip()
+            if not text:
+                raise ValueError("empty response")
+            return text
+        except Exception as e:
+            # Details go to the log only; the summary is published on the dashboard.
+            print(f"Error during Gemini API call ({model}, attempt {attempt + 1}): {e}")
+            if _is_daily_quota(e) or wait is None or getattr(e, "code", None) not in GEMINI_TRANSIENT_CODES:
+                raise
+            time.sleep(wait)
+    raise RuntimeError("unreachable")
+
+
+def _generate_with_fallback_provider(contents: str):
+    """Optional second provider with an OpenAI-compatible chat API (Groq, Cerebras, OpenRouter, Mistral, ...).
+
+    Enabled by LLM_FALLBACK_URL (the .../chat/completions endpoint), LLM_FALLBACK_KEY and LLM_FALLBACK_MODEL.
+    """
+    url = os.environ.get("LLM_FALLBACK_URL")
+    key = os.environ.get("LLM_FALLBACK_KEY")
+    model = os.environ.get("LLM_FALLBACK_MODEL")
+    if not (url and key and model):
+        return None
+    try:
+        res = requests.post(
+            url, timeout=90, headers={"Authorization": f"Bearer {key}"},
+            json={"model": model, "temperature": 0.2, "messages": [
+                {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+                {"role": "user", "content": contents},
+            ]},
+        )
+        res.raise_for_status()
+        return (res.json()["choices"][0]["message"]["content"] or "").strip() or None
+    except Exception as e:
+        print(f"Error during fallback LLM call ({model}): {e}")
+        return None
+
+
 def summarize_diff_with_gemini(diff_text: str) -> str:
     if not diff_text.strip():
         return "更新差分はありませんでした。"
 
     api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key or not genai:
-        print("GEMINI_API_KEY is not set or google-generativeai module is missing. Skipping AI summarization.")
+    gemini_ready = bool(api_key and genai)
+    fallback_ready = all(os.environ.get(k) for k in ("LLM_FALLBACK_URL", "LLM_FALLBACK_KEY", "LLM_FALLBACK_MODEL"))
+    if not gemini_ready and not fallback_ready:
+        print("GEMINI_API_KEY is not set or google-genai is missing (and no LLM_FALLBACK_* provider). Skipping AI summarization.")
         return "Gemini APIキー未設定のため自動要約はスキップされました。"
 
     # The diff is untrusted third-party content: it goes in the user turn as data, while the
     # instructions live in the system instruction.
     contents = f"Summarize the following diff.\n\n<diff>\n{diff_text[:MAX_DIFF_CHARS]}\n</diff>"
     config = {"system_instruction": SUMMARY_SYSTEM_PROMPT, "temperature": 0.2}
-    client = genai.Client(api_key=api_key)
-    for attempt, wait in enumerate(GEMINI_RETRY_WAITS + [None]):
-        try:
-            response = client.models.generate_content(model=GEMINI_MODEL, contents=contents, config=config)
-            return response.text.strip()
-        except Exception as e:
-            # Details go to the log only; the summary is published on the dashboard.
-            print(f"Error during Gemini API call (attempt {attempt + 1}): {e}")
-            transient = getattr(e, "code", None) in GEMINI_TRANSIENT_CODES
-            if wait is None or not transient:
-                return SUMMARY_FAILED
-            time.sleep(wait)
+
+    if gemini_ready:
+        client = genai.Client(api_key=api_key)
+        for model in GEMINI_MODELS:
+            if model in _unavailable_models:
+                continue
+            try:
+                return _generate_with_gemini(client, model, contents, config)
+            except Exception as e:
+                # Out of quota for today, still rate limited after the retries, or not offered to this key:
+                # do not ask this model again during this run (it would only cost more waiting).
+                if _is_daily_quota(e) or getattr(e, "code", None) in (403, 404, 429):
+                    _unavailable_models.add(model)
+                    print(f"{model}: unavailable for the rest of this run; trying the next model.")
+                # any other failure (e.g. persistent 503): the next model may have capacity
+
+    text = _generate_with_fallback_provider(contents)
+    if text:
+        return text
     return SUMMARY_FAILED
 
 
