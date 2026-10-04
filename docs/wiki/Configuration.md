@@ -114,7 +114,8 @@ gh secret list --repo TanukiMa/g-i-t-app
 | `GEMINI_MODELS` | `gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite` | 要約に使うモデルを、**優先順にカンマ区切り**で。無料枠の1日の上限（RPD）はモデルごとに数えられるため、1つが使い切りになると次のモデルに移る。リポジトリの Variables で設定する |
 | `LLM_FALLBACK_URL` / `LLM_FALLBACK_MODEL` | （未設定） | （任意）別プロバイダーの OpenAI 互換 API（`.../chat/completions` の URL とモデル名）。Variables で設定し、キーは Secrets の `LLM_FALLBACK_KEY` |
 | `SUMMARY_BACKFILL_LIMIT` | `10` | 1回の実行で作り直す、失敗した要約の最大件数（`0` で無効） |
-| `ARCHIVE_BATCH_SIZE` | `20` | 1回のアーカイブ処理で保存する URL の最大件数 |
+| `ARCHIVE_BATCH_SIZE` | `20` | アーカイブ処理が、1ラウンドで取り出す URL の件数 |
+| `ARCHIVE_RUNTIME_MIN` | `14` | 1回の実行で、新しい URL に着手する時間の予算（分）。待ちがなくなれば、その前に終わる |
 | `ARCHIVE_INTERVAL_SEC` | `15` | 保存の間隔（秒） |
 | `SITE_BASE_URL` | `https://tanukima.github.io/g-i-t-data/` | Atom フィード内の絶対 URL の基準 |
 | `GA_MEASUREMENT_ID` | （未設定） | Google アナリティクス 4 の測定 ID（`G-XXXXXXXXXX`）。Variables に設定する。未設定または形式が違うと、Google のタグは出力されない |

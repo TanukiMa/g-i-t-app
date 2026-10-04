@@ -60,7 +60,7 @@ supabase db query --linked "select table_name from information_schema.tables whe
 | リセット後も、古い更新（存在しないコミット）がダッシュボードに出る | ダッシュボードは **Supabase の行**から作られる。Git は空になっても、`updates` / `archive_queue` に古い行が残っている。件数を確認し、リセット時刻より前の行を消して再実行する（下記） |
 | 更新したはずなのに、古い画面が出る（アプリ／ブラウザ） | ページはネットワーク優先なので、通常は最新が出る。出ない場合は、ブラウザの開発者ツール → Application → Service Workers で「Unregister」と「Clear site data」を実行する |
 | リセット後にワークフローが動かない | 失敗した場合、無効のまま。`gh workflow enable` で戻す |
-| 更新が多いサイトの Wayback が「保存待ち」のまま | `archive.yml` が1回に20件・15秒間隔で処理している。時間が経てば進む。急ぐなら `ARCHIVE_BATCH_SIZE` を増やす |
+| Wayback が「保存待ち」のまま（`archive_queue` が `pending` で `archive_url` が空） | `pending` の行は、次の実行で再試行される（失敗は 30 分から倍々の間隔で最大5回、そのあと `failed`）。ただし GitHub のスケジュールは間引かれることがあり、実行の間隔が数時間になる。実行の履歴と、下のクエリで状況を見る。急ぐときは `gh workflow run archive.yml` |
 
 ### リセット後も古い更新が表示されるとき
 
@@ -78,3 +78,19 @@ supabase db query --linked "delete from updates       where created_at < '2026-1
 gh workflow run stalk.yml --repo TanukiMa/g-i-t-app
 ```
 全部消してよければ、`truncate updates, archive_queue restart identity;` でも構いません。
+
+### アーカイブの待ちの状況を見る
+
+```powershell
+# 状態別の件数と、いちばん古い行
+supabase db query --linked "select status, count(*) as n, min(created_at) as oldest, max(attempts) as max_attempts from archive_queue group by status order by status;"
+
+# 保留中の行（なぜ終わっていないか）
+supabase db query --linked "select left(url, 70) as url, attempts, next_try_at, left(last_error, 60) as last_error from archive_queue where status = 'pending' order by created_at limit 20;"
+
+# 実行の間隔（スケジュールが間引かれていないか）
+gh run list --repo TanukiMa/g-i-t-app --workflow archive.yml --limit 15
+```
+- `attempts = 0` のままの行は、まだ着手されていない（順番待ち）。
+- `last_error` が `Unauthorized` なら、`IA_ACCESS_KEY` / `IA_SECRET_KEY` を確認する。
+- `failed` になった行を再試行したいときは、`update archive_queue set status = 'pending', attempts = 0, next_try_at = now() where status = 'failed';`

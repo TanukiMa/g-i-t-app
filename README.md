@@ -17,7 +17,7 @@ g-i-t-app/
 ├── .github/
 │   └── workflows/
 │       ├── stalk.yml          # 定期実行ワークフロー（毎時）
-│       └── archive.yml        # アーカイブワーカー（15分毎）
+│       └── archive.yml        # アーカイブワーカー（毎時7分・37分）
 ├── scripts/
 │   ├── website_stalk.py       # パイプライン本体
 │   ├── provision.py           # sites/<slug>/ 自動プロビジョニング

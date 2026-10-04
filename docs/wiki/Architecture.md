@@ -9,7 +9,7 @@
 | **g-i-t-app**（リポジトリ） | コード。Python のパイプライン、GitHub Actions のワークフロー、ページのテンプレート |
 | **g-i-t-data**（リポジトリ） | データ。`config.yaml`（監視対象）、`sites/<slug>/`（取得したページ）、`public/`（ダッシュボード） |
 | **website-stalker**（Matanuki version） | 各ページの取得と、本文の整形（Rust 製 CLI） |
-| **GitHub Actions** | 毎時の本処理と、15分ごとのアーカイブ処理 |
+| **GitHub Actions** | 毎時の本処理と、30分ごとのアーカイブ処理 |
 | **Gemini API** | 差分の要約（日本語） |
 | **Supabase** | 更新のメタデータと、アーカイブ待ちの一覧 |
 | **Internet Archive** | ページのコピーの保存（Wayback Machine） |
@@ -22,7 +22,7 @@
 | ワークフロー | 実行 | 内容 |
 |---|---|---|
 | `stalk.yml` | 毎時 13 分（UTC）と手動 | 取得 → コミット → 要約 → 記録 → ダッシュボード生成 → 公開 |
-| `archive.yml` | 15分ごとと手動 | アーカイブ待ちの URL を、1件ずつ間隔を空けて Internet Archive に保存 |
+| `archive.yml` | 毎時 7 分と 37 分（UTC）と手動 | アーカイブ待ちの URL を、1件ずつ間隔を空けて Internet Archive に保存 |
 
 どちらも同時に2つ走らないよう `concurrency` で直列化しています。`archive.yml` は Git に触れず、Supabase と Internet Archive だけを使うので、`stalk.yml` とは競合しません。
 
@@ -41,9 +41,11 @@
 
 ## アーカイブ処理（archive.yml → archive_worker.py）
 
-- 1回に最大 **20件**（`ARCHIVE_BATCH_SIZE`）、**15秒**間隔（`ARCHIVE_INTERVAL_SEC`）で保存する。
+- **15秒**間隔（`ARCHIVE_INTERVAL_SEC`）で1件ずつ保存する。20 件（`ARCHIVE_BATCH_SIZE`）ずつ取り出し、**待ちがなくなるか、時間の予算（`ARCHIVE_RUNTIME_MIN`、既定 14 分）を使い切るまで**続ける。
+  - GitHub は、頻度の高いスケジュールを間引きます（「15分おき」でも1日に数回しか動かないことがある）。そのため、1回の実行で打ち切らず、動いたときにまとめて処理する作りにしています。
 - 登録する URL は、監視対象のページ自体と、**差分で追加された同一ドメインの文書**（`.pdf` / `.doc(x)` / `.xls(x)` / `.ppt(x)`、1回につき最大50件）。
-- HTTP 429 のときは、その回を打ち切り、15分後に再試行する。robots.txt で拒否された URL は即 `failed`。その他の失敗は、30分から倍々の間隔で最大5回まで再試行する。
+- HTTP 429 のときは、その回を打ち切り、15分後に再試行する。robots.txt で拒否された URL は即 `failed`。その他の失敗は、30分から倍々の間隔で最大5回まで再試行し、`last_error` に例外の種類（`BadGateway` など）を記録する。
+- IA のキーが無効（`Unauthorized`）のときは、再試行の回数を使い切らないよう、行を変えずに止めて、実行を失敗にする。
 
 ## 出力されるページ（`public/`）
 
