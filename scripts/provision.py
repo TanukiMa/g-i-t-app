@@ -119,6 +119,17 @@ DEFAULT_IGNORE_RULES = [
                    r"\?(?:(?:ver|v|t|ts|time|timestamp|rev|cb)=)?[0-9][0-9.]*",
         "replace": "$1",
     },
+    # Expiring "NEW" badges (<span class="new">NEW</span>, <b>New!</b>, 新着): they vanish after a few days
+    # and would be reported as a change. Only elements whose whole text is the badge are removed.
+    {
+        "pattern": r"(?i)\s*<(?:span|em|strong|b|i|font|small|sup)\b[^>]*>\s*(?:new|ＮＥＷ|新着)\s*[!！]?\s*</(?:span|em|strong|b|i|font|small|sup)>",
+        "replace": "",
+    },
+    # Badge images such as <img src="new.gif" alt="NEW">.
+    {
+        "pattern": r"""(?i)\s*<img\b[^>]*\balt=["'](?:new|ＮＥＷ|新着)[!！]?["'][^>]*>""",
+        "replace": "",
+    },
 ]
 
 # website-stalker uses the Rust `regex` crate: no look-around and no back-references.

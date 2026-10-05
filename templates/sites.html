@@ -24,7 +24,7 @@
         <li><a class="site-chip" href="{{ s.url }}" target="_blank" rel="noopener noreferrer" title="{{ s.url }}">{{ s.url|hostname }}</a></li>
         {% for tag in s.tags %}<li><span class="tag">{{ tag }}</span></li>{% endfor %}
       </ul>
-      <p>{% if s.count %}最終更新 {{ s.last }} ・ 更新 {{ s.count }} 回{% else %}まだ更新はありません（監視中）{% endif %}</p>
+      <p>{% if s.count %}最終更新 {{ s.last }} ・ 更新 {{ s.count }} 回{% else %}まだ更新はありません{% endif %}</p>
       {% if s.excerpt %}<div class="summary"><p>{{ s.excerpt }}</p></div>{% endif %}
       <div class="links">
         <a href="sites/{{ s.slug }}/{{ site_page }}">📜 更新歴を見る</a>
@@ -33,7 +33,7 @@
       </div>
     </section>
     {% else %}
-    <p>監視対象サイトはまだ登録されていません。</p>
+    <p>記録対象サイトはまだ登録されていません。</p>
     {% endfor %}
   </div>
   {{ footer() }}
