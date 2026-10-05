@@ -7,34 +7,22 @@
 ## 概要
 
 `g-i-t-app` は以下の動作をする
+
 1. **JIT Auto-Provisioning (`scripts/provision.py`)**
+
 `g-i-t-data/config.yaml` を読み込み、未登録の監視対象URLがあれば `sites/<slug>/website-stalker.yaml` を自動作成し、git repositoryにcommitする。
+
 2. **Web Stalking Pipeline (`scripts/website_stalk.py`)**
+
 各 `sites/<slug>/` で `website-stalker run --all` を実行し、差分発生時にサイトごとに 1 commitを実施。
 続けて 差分に対してGemini API による日本語要約を生成、差分 HTML ([diff2html](https://diff2html.xyz/)) を生成、
-Supabase へのメタデータ登録、Wayback Machine 保存対象URLのキュー登録（`archive_queue`）を行います。
+Supabase へのメタデータ登録、Wayback Machine 保存対象URLのキュー登録（`archive_queue`）を行う。
+
 3. **Dashboard Builder (`scripts/build_dashboard.py`)**
-Supabase から更新履歴を取得し、GitHub Pages 用の静的 HTML ダッシュボードを構築します。
+
+[Supabase](https://supabase.com/) から更新履歴を取得し、GitHub Pages 用の静的 HTML ダッシュボードを構築する。
+
 4. **GitHub Actions Workflow (`.github/workflows/stalk.yml`)**
-上記パイプラインを定期実行します。
 
-## ディレクトリ構成
+上記パイプラインを定期実行する。
 
-```text
-g-i-t-app/
-├── .github/
-│   └── workflows/
-│       ├── stalk.yml          # 定期実行ワークフロー（毎時）
-│       └── archive.yml        # アーカイブワーカー（毎時7分・37分）
-├── scripts/
-│   ├── website_stalk.py       # パイプライン本体
-│   ├── provision.py           # sites/<slug>/ 自動プロビジョニング
-│   ├── archive_worker.py      # archive_queue を Internet Archive に保存
-│   └── build_dashboard.py     # ダッシュボード生成（GitHub風 / dashboard / minimal）
-├── static/                    # CSS と app.js（フォロー・絞り込み）
-├── templates/
-│   ├── index.html             # 全体タイムラインテンプレート
-│   └── site_detail.html       # サイト個別タイムラインテンプレート
-├── requirements.txt           # Python依存ライブラリ
-└── README.md
-```
