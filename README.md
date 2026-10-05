@@ -11,9 +11,12 @@
 `g-i-t-data/config.yaml` を読み込み、未登録の監視対象URLがあれば `sites/<slug>/website-stalker.yaml` を自動作成し、git repositoryにcommitする。
 2. **Web Stalking Pipeline (`scripts/website_stalk.py`)**
 各 `sites/<slug>/` で `website-stalker run --all` を実行し、差分発生時にサイトごとに 1 commitを実施。
-続けて Gemini API による日本語要約、差分 HTML (diff2html) 生成、Supabase へのメタデータ登録、Wayback Machine 保存対象 URL のキュー登録（`archive_queue`）を行います。
-3. **Dashboard Builder (`scripts/build_dashboard.py`)**: Supabase から更新履歴を取得し、GitHub Pages 用の静的 HTML ダッシュボードを構築します。
-4. **GitHub Actions Workflow (`.github/workflows/stalk.yml`)**: 上記パイプラインを定期実行します。
+続けて 差分に対してGemini API による日本語要約を生成、差分 HTML ([diff2html](https://diff2html.xyz/)) を生成、
+Supabase へのメタデータ登録、Wayback Machine 保存対象URLのキュー登録（`archive_queue`）を行います。
+3. **Dashboard Builder (`scripts/build_dashboard.py`)**
+Supabase から更新履歴を取得し、GitHub Pages 用の静的 HTML ダッシュボードを構築します。
+4. **GitHub Actions Workflow (`.github/workflows/stalk.yml`)**
+上記パイプラインを定期実行します。
 
 ## ディレクトリ構成
 
