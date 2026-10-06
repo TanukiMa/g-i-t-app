@@ -297,6 +297,52 @@ def attach_diff_pages(updates, public_dir: str):
             item["diff_file"] = name
 
 
+DIFF_NAV_MARK = "<!--git-nav-->"
+DIFF_NAV_STYLE = (
+    "<style>.git-nav{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;align-items:center;margin:0 0 .8rem;padding:.6rem 1rem;"
+    "background:#f6f8fa;border-bottom:1px solid #d0d7de;font:14px/1.4 system-ui,sans-serif;text-align:left}"
+    ".git-nav a{color:#0969da;text-decoration:none}.git-nav a:hover{text-decoration:underline}"
+    ".git-nav span{color:#656d76}"
+    "@media (prefers-color-scheme:dark){.git-nav{background:#161b22;border-color:#30363d}.git-nav a{color:#58a6ff}"
+    ".git-nav span{color:#8b949e}}</style>"
+)
+
+
+def add_diff_navigation(public_dir: str, names: dict) -> int:
+    """Put a link bar (back / site history / timeline) at the top of every diff page.
+
+    diff2html writes a standalone page without any link back. Done here, for all existing diff pages, so
+    the pages written by older runs get it too; the marker keeps it idempotent. Returns the number of pages changed.
+    """
+    sites_root = os.path.join(public_dir, "sites")
+    changed = 0
+    for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
+        folder = os.path.join(sites_root, slug)
+        for name in sorted(os.listdir(folder)):
+            if not (name.startswith("diff_") and name.endswith(".html")):
+                continue
+            path = os.path.join(folder, name)
+            with open(path, "r", encoding="utf-8") as f:
+                page = f.read()
+            if DIFF_NAV_MARK in page or not re.search(r"<body[^>]*>", page):
+                continue
+            site = html.escape(names.get(slug, slug))
+            nav = (f'{DIFF_NAV_MARK}<nav class="git-nav">'
+                   f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
+                   f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
+                   f'<a href="../../index.html">全体タイムライン</a>'
+                   f'<a href="../../sites.html">監視サイト一覧</a>'
+                   f'<span>差分 {html.escape(name[5:-5])}</span></nav>')
+            page = re.sub(r"<body[^>]*>", lambda m: m.group(0) + nav, page, count=1)
+            page = page.replace("</head>", DIFF_NAV_STYLE + "</head>", 1)
+            page = page.replace("<title>Diff to HTML by rtfpessoa</title>",
+                                f"<title>差分 {site} {html.escape(name[5:-5])} - G医t</title>", 1)
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(page)
+            changed += 1
+    return changed
+
+
 def fetch_all(supabase, table: str) -> list:
     """Page through a table; PostgREST caps each response (1000 by default)."""
     rows = []
@@ -431,6 +477,8 @@ def main():
     )
     env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
                        analytics=analytics_settings())
+
+    print(f"Added navigation to {add_diff_navigation(public_dir, names)} diff page(s).")
 
     generated = to_jst(datetime.now(timezone.utc))
     build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
