@@ -20,7 +20,7 @@ except ImportError:
     create_client = None
 
 BATCH_SIZE = int(os.environ.get("ARCHIVE_BATCH_SIZE", "20"))        # rows fetched per round
-INTERVAL_SEC = int(os.environ.get("ARCHIVE_INTERVAL_SEC", "21"))    # pause between two URLs
+INTERVAL_SEC = int(os.environ.get("ARCHIVE_INTERVAL_SEC", "30"))    # pause between two URLs
 RUNTIME_MINUTES = float(os.environ.get("ARCHIVE_RUNTIME_MIN") or 14)  # stop starting new URLs after this
 MAX_ATTEMPTS = 5
 BACKOFF_MINUTES = 30      # doubled per failed attempt
