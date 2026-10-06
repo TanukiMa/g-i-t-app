@@ -18,7 +18,7 @@
 <script src="{{ root }}assets/pwa.js" defer data-root="{{ root }}"></script>
 {% if analytics.enabled %}<script src="{{ root }}assets/analytics.js" defer data-ga="{{ analytics.ga_id }}" data-cf="{{ analytics.cf_token }}"></script>{% endif %}
 </head>
-<body>
+<body class="style-{{ style|default('github') }}">
 <main>
   {% block content %}{% endblock %}
 </main>

@@ -119,3 +119,12 @@ h1 .follow-btn { font-size: 0.8em; }
 .gsearch-head { display: flex; flex-wrap: wrap; gap: 0.2em 0.8em; align-items: baseline; }
 .gsearch-text { margin: 0.25em 0 0; line-height: 1.5; }
 .gsearch mark { background: rgba(255, 213, 0, 0.45); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+/* ---- full-width layout: use the whole browser width; cards flow into as many columns as fit ---- */
+main { max-width: none; width: 100%; padding-inline: clamp(16px, 3vw, 56px); }
+#content { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr)); gap: 1rem; align-items: start; }
+#content > :not(.entry) { grid-column: 1 / -1; }   /* headings, row lists, notes span all columns */
+#content > .entry { margin: 0; min-width: 0; }
+.style-minimal #content { gap: 0 3rem; }          /* minimal: borderless entries separated by rules only */
+.prose, .gsearch, .site-footer { max-width: 60rem; }  /* running text stays readable */
+.site-footer { margin-inline: 0; }

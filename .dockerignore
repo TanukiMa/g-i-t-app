@@ -5,3 +5,5 @@
 supabase
 docs
 *.ps1
+.env
+.env.*
