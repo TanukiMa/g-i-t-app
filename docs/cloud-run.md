@@ -4,6 +4,7 @@ GitHub Actions の `schedule` の代わりに、**Cloud Scheduler → Cloud Run 
 
 ```text
 Cloud Scheduler ──▶ Cloud Run Job (container, asia-northeast1)
+                      0. g-i-t-app のコードを GitHub から取得（bootstrap.sh、APP_REF で固定可）
                       1. g-i-t-data を部分 clone（--filter=blob:none）
                       2. website_stalk.py（取得・要約・push・ダッシュボード生成）
                       3. git gc
@@ -64,6 +65,12 @@ gcloud artifacts repositories create git --repository-format=docker --location=$
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/git/g-i-t-app:latest
 gcloud builds submit --tag $IMAGE .      # 初回は Rust のビルドで 10 分ほどかかる
 ```
+
+**イメージに入っているのは、ツールと依存だけです**（website-stalker、Node、Python の依存）。`scripts/`・`templates/`・`static/` などの g-i-t-app のコードは、**実行のたびに GitHub（`APP_REPO` の `APP_REF`）から取得します**。コードを変えたときは、push するだけで、次の実行から反映されます。イメージの作り直しが要るのは、`requirements.txt` か `Dockerfile` を変えたときだけです（`requirements.txt` が焼き込んだものと違うと、起動時にエラーで止まります）。
+
+- `APP_REF`（既定 `main`）にはブランチ・タグ・コミットを指定できます。**壊れたコミットを push してしまったときは、再ビルドなしで戻せます。**
+  `gcloud run jobs update g-i-t-stalk --region $REGION --update-env-vars APP_REF=<正常だったコミット>`
+- `g-i-t-app` は public なので、取得にトークンは要りません（private にしたときは、`GH_PAT` に読み取り権限を足す改修が要ります）。
 
 website-stalker のフォークを更新したときだけ、`--no-cache` で作り直します（イメージはフォークの HEAD を固定しません。固定するなら `--build-arg WS_REV=<SHA>`）。
 
@@ -149,6 +156,7 @@ gcloud run jobs create g-i-t-archive --image $IMAGE --region $REGION --args=arch
 
 ```bash
 docker build -t g-i-t-app .
+# 作業中のコードで試すときは、-v "$PWD:/app" を付ける（付けないと GitHub の main を取得する）
 docker run --rm -e GH_PAT -e SUPABASE_URL -e SUPABASE_KEY -e WEBSITE_STALKER_FROM -e GEMINI_API_KEY \
   -e FIREBASE_PROJECT=dummy -e SITE_BASE_URL=https://example.com/ g-i-t-app
 ```

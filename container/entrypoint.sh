@@ -3,11 +3,12 @@
 #   stalk   (default)  clone g-i-t-data -> pipeline (fetch, summarize, push, build dashboard) -> deploy to Firebase Hosting
 #   archive            drain archive_queue (scripts/archive_worker.py)
 set -uo pipefail
+APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # set by bootstrap.sh (code fetched at start)
 export HOME=/tmp   # Cloud Run's file system is read-only except /tmp; git and firebase write their config there
 
 cmd="${1:-stalk}"
 if [ "$cmd" = "archive" ]; then
-  exec python /app/scripts/archive_worker.py
+  exec python "$APP_DIR/scripts/archive_worker.py"
 elif [ "$cmd" != "stalk" ]; then
   echo "usage: entrypoint.sh [stalk|archive]" >&2
   exit 2
@@ -33,7 +34,7 @@ mkdir -p /work && cd /work || exit 1
 # Partial clone: full commit history, file contents (blobs) are fetched when needed.
 git clone --filter=blob:none "https://github.com/${DATA_REPO}.git" data || exit 1
 
-python /app/scripts/website_stalk.py --data-dir ./data
+python "$APP_DIR/scripts/website_stalk.py" --data-dir ./data
 status=$?
 
 git -C data gc --quiet || true
@@ -41,7 +42,7 @@ echo "g-i-t-data .git size: $(du -sm data/.git | cut -f1) MB"
 
 # Deploy whenever a dashboard exists, also after a partial failure (the exit status still reports it).
 if [ -f data/public/index.html ]; then
-  cp /app/container/firebase.json /work/firebase.json
+  cp "$APP_DIR/container/firebase.json" /work/firebase.json
   firebase deploy --only hosting --project "$FIREBASE_PROJECT" --non-interactive || status=1
 else
   echo "data/public/index.html is missing; skipping deploy." >&2
