@@ -1,0 +1,156 @@
+# Cloud Run + Firebase Hosting で動かす
+
+GitHub Actions の `schedule` の代わりに、**Cloud Scheduler → Cloud Run Job** で `stalk` を毎時動かし、できあがった `public/` を **Firebase Hosting**（独自ドメイン）に公開します。
+
+```text
+Cloud Scheduler ──▶ Cloud Run Job (container, asia-northeast1)
+                      1. g-i-t-data を部分 clone（--filter=blob:none）
+                      2. website_stalk.py（取得・要約・push・ダッシュボード生成）
+                      3. git gc
+                      4. firebase deploy --only hosting
+```
+
+> **注意:** この構成は、手元で `docker build` / `docker run` による動作確認をまだしていません。最初の実行は、Cloud Run のログを見ながら進めてください（特に「Firebase CLI がサービスアカウントで認証できるか」）。
+
+構成ファイル: `Dockerfile` / `container/entrypoint.sh` / `container/firebase.json` / `monitoring/*.json`
+
+## 0. 変数（以降のコマンドで使う）
+
+```bash
+PROJECT=<GCP プロジェクト ID>
+REGION=asia-northeast1
+SA=g-i-t-runner
+DOMAIN=git.example.com        # 公開するサブドメイン
+```
+
+## 1. 準備
+
+```bash
+gcloud config set project $PROJECT
+gcloud services enable run.googleapis.com cloudscheduler.googleapis.com secretmanager.googleapis.com \
+  artifactregistry.googleapis.com cloudbuild.googleapis.com firebasehosting.googleapis.com \
+  monitoring.googleapis.com serviceusage.googleapis.com
+
+# Firebase をこのプロジェクトに追加（コンソール https://console.firebase.google.com/ で「プロジェクトを追加」→ 既存の GCP プロジェクトを選ぶ）
+# Hosting を使い始める（初回だけ）
+npx firebase-tools init hosting --project $PROJECT   # 質問は、public=data/public、SPA=No、GitHub 連携=No、上書き=No
+```
+
+## 2. サービスアカウントと権限
+
+```bash
+gcloud iam service-accounts create $SA
+for role in roles/secretmanager.secretAccessor roles/firebasehosting.admin roles/serviceusage.serviceUsageConsumer; do
+  gcloud projects add-iam-policy-binding $PROJECT --member=serviceAccount:$SA@$PROJECT.iam.gserviceaccount.com --role=$role
+done
+```
+
+## 3. シークレット（Secret Manager）
+
+値は対話で入力し、履歴に残さないようにします。
+
+```bash
+for name in GH_PAT GEMINI_API_KEY SUPABASE_URL SUPABASE_KEY WEBSITE_STALKER_FROM IA_ACCESS_KEY IA_SECRET_KEY; do
+  read -rsp "$name: " v; echo
+  printf '%s' "$v" | gcloud secrets create $name --data-file=-
+done
+# 任意: LLM_FALLBACK_KEY も同様に
+```
+
+## 4. イメージのビルド
+
+```bash
+gcloud artifacts repositories create git --repository-format=docker --location=$REGION
+IMAGE=$REGION-docker.pkg.dev/$PROJECT/git/g-i-t-app:latest
+gcloud builds submit --tag $IMAGE .      # 初回は Rust のビルドで 10 分ほどかかる
+```
+
+website-stalker のフォークを更新したときだけ、`--no-cache` で作り直します（イメージはフォークの HEAD を固定しません。固定するなら `--build-arg WS_REV=<SHA>`）。
+
+## 5. Cloud Run Job
+
+```bash
+gcloud run jobs create g-i-t-stalk \
+  --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com \
+  --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 3000s \
+  --set-env-vars FIREBASE_PROJECT=$PROJECT,SITE_BASE_URL=https://$DOMAIN/ \
+  --set-secrets GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest,WEBSITE_STALKER_FROM=WEBSITE_STALKER_FROM:latest
+
+gcloud run jobs execute g-i-t-stalk --region $REGION --wait     # 手動で 1 回
+gcloud run jobs executions list --job g-i-t-stalk --region $REGION
+```
+
+- タイムアウトを **50 分**にしているのは、毎時の実行どうしが重ならないようにするためです（重なると、同じ g-i-t-data に同時に push して競合します）。
+- GA4 / Cloudflare のタグ、Gemini のモデル順、フォールバック LLM は、`--set-env-vars` に `GA_MEASUREMENT_ID` などを足して渡します（`docs/wiki/Configuration.md`）。
+
+## 6. スケジュール（Cloud Scheduler）
+
+```bash
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber)')
+gcloud run jobs add-iam-policy-binding g-i-t-stalk --region $REGION \
+  --member=serviceAccount:$SA@$PROJECT.iam.gserviceaccount.com --role=roles/run.invoker
+
+gcloud scheduler jobs create http g-i-t-stalk --location $REGION \
+  --schedule "43 23,0-9 * * *" --time-zone UTC \
+  --http-method POST \
+  --uri "https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_NUMBER/jobs/g-i-t-stalk:run" \
+  --oauth-service-account-email $SA@$PROJECT.iam.gserviceaccount.com
+```
+
+スケジュールは、これまでの `stalk.yml`（UTC の毎時 43 分、23〜9 時）と同じです。切り替えるときは、GitHub 側を止めます。
+
+```bash
+gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
+```
+
+## 7. 独自ドメイン（サブドメイン）
+
+1. Firebase コンソール → Hosting → 「カスタムドメインを追加」→ `$DOMAIN`。
+2. 表示された **TXT**（所有確認）と **A**（または表示された種類）のレコードを、**Route 53** のホストゾーンに追加。
+3. SSL 証明書は、検証後に自動で発行されます（数分〜数時間かかることがあります）。
+
+公開後は、次を直します。
+
+- `SITE_BASE_URL` は 5 で設定済みです（Atom の絶対 URL）。
+- GA4 のデータストリームの URL を、新しいドメインに変える（使っている場合）。
+- **フォローの選択（`localStorage`）はドメインが変わると引き継がれません。** 利用者に「フォロー共有」の `?follow=` リンクで書き出してもらうよう、案内してください。
+
+## 8. 転送量の監視（無料枠は 1 日 360 MB）
+
+```bash
+# ダッシュボード
+gcloud monitoring dashboards create --config-from-file=monitoring/hosting-dashboard.json
+
+# 通知先（メール）
+gcloud beta monitoring channels create --display-name="G医t" --type=email \
+  --channel-labels=email_address=<あなたのメールアドレス>
+gcloud beta monitoring channels list --format='value(name)'     # projects/.../notificationChannels/NNN
+
+# アラート（直近 24 時間の送信量が 300 MB 超）
+gcloud alpha monitoring policies create --policy-from-file=monitoring/hosting-alert.json \
+  --notification-channels=<上の name>
+```
+
+- 指標は `firebasehosting.googleapis.com/network/sent_bytes_count`（リソース `firebase_domain`）です。**初めに、Cloud Monitoring の Metrics Explorer で、この指標が出ていることを確認してください。** 出ていなければ、リソースの種類やフィルタを直す必要があります。
+- 窓は「直近 24 時間」の移動窓です（暦日ごとではありません）。しきい値は 300 MiB（314,572,800 バイト）です。
+- 1 日の上限（360 MB）を超えたあとの扱いは、プランによります。有料（Blaze）にすると、超過分は従量課金になります。
+
+## 9. アーカイブワーカー
+
+同じイメージで `archive` も動かせます（`g-i-t-archive` というジョブを同様に作り、引数に `archive` を渡す）。ただし、1 件あたり約 75 秒を待つ処理なので、Cloud Run の課金には向きません。手元の Linux で `scripts/drain-archive-local.sh` を動かすほうを勧めます。
+
+```bash
+gcloud run jobs create g-i-t-archive --image $IMAGE --region $REGION --args=archive \
+  --service-account $SA@$PROJECT.iam.gserviceaccount.com --max-retries 0 --task-timeout 1200s \
+  --set-secrets SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest,IA_ACCESS_KEY=IA_ACCESS_KEY:latest,IA_SECRET_KEY=IA_SECRET_KEY:latest
+```
+
+## 手元での確認
+
+```bash
+docker build -t g-i-t-app .
+docker run --rm -e GH_PAT -e SUPABASE_URL -e SUPABASE_KEY -e WEBSITE_STALKER_FROM -e GEMINI_API_KEY \
+  -e FIREBASE_PROJECT=dummy -e SITE_BASE_URL=https://example.com/ g-i-t-app
+```
+
+デプロイ（最後の手順）は、認証がないので失敗します。そこまでの clone・取得・push の動作を確認できます。**これは本物の g-i-t-data に push するので、確認用のリポジトリを `-e DATA_REPO=<owner>/<repo>` で指定してください。**

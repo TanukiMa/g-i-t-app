@@ -105,3 +105,17 @@ h1 .follow-btn { font-size: 0.8em; }
 /* ---- PWA ---- */
 .install-btn { font: inherit; font-size: inherit; color: var(--link); background: transparent; border: 1px solid var(--border); border-radius: 2em; padding: 0.1em 0.8em; cursor: pointer; }
 .install-btn:hover { border-color: var(--link); }
+
+/* ---- full-text search (injected by app.js at the top of <main>) ---- */
+.gsearch { margin: 0 0 1rem; font-size: 0.9rem; }
+.gsearch > input[type="search"] {
+  width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: transparent;
+  border: 1px solid var(--border); border-radius: 2em; padding: 0.45em 1em;
+}
+.gsearch-results { margin-top: 0.6rem; padding: 0.6rem 0.9rem; border: 1px solid var(--border); border-radius: 0.6em; max-height: 70vh; overflow-y: auto; }
+.gsearch-site { display: block; padding: 0.25em 0; font-weight: 600; }
+.gsearch-count, .gsearch-empty { margin: 0.4em 0; color: var(--muted); font-size: 0.85em; }
+.gsearch-hit { padding: 0.5em 0; border-top: 1px solid var(--border); }
+.gsearch-head { display: flex; flex-wrap: wrap; gap: 0.2em 0.8em; align-items: baseline; }
+.gsearch-text { margin: 0.25em 0 0; line-height: 1.5; }
+.gsearch mark { background: rgba(255, 213, 0, 0.45); color: inherit; border-radius: 2px; padding: 0 1px; }

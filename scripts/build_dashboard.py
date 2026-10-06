@@ -1,5 +1,6 @@
 import hashlib
 import html
+import json
 import os
 import re
 import sys
@@ -118,6 +119,31 @@ def excerpt(summary, limit: int = 90) -> str:
         if line:
             return line if len(line) <= limit else line[: limit - 1] + "…"
     return ""
+
+
+def plain_summary(summary) -> str:
+    """Whole AI summary as one plain-text line for the search index ("" when there is no real summary)."""
+    if not summary or summary in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
+        return ""
+    lines = (re.sub(r"^\s*(?:[*+\-]|\d+[.)]|#{1,6})\s+", "", raw).replace("**", "").replace("`", "").strip()
+             for raw in str(summary).splitlines())
+    return " ".join(line for line in lines if line)
+
+
+def build_search_index(sites: list, updates: list) -> str:
+    """JSON for the client-side full-text search: every site and every update summary, no server needed.
+
+    {"v":1,"sites":[[slug,name,url,[tags]]...],"updates":[[slug,"YYYY-MM-DD HH:MM",hash7,text,diff_file]...]}
+    """
+    rows = []
+    for u in updates:  # newest first
+        text = plain_summary(u.get("summary"))
+        if text and u.get("site_slug"):
+            rows.append([u["site_slug"], to_jst(u["created_at"], with_suffix=False), str(u.get("commit_hash", ""))[:7],
+                         text, u.get("diff_file") or ""])
+    return json.dumps({"v": 1,
+                       "sites": [[s["slug"], s["name"], s.get("url", ""), s.get("tags", [])] for s in sites],
+                       "updates": rows}, ensure_ascii=False, separators=(",", ":"))
 
 
 def build_site_infos(configured: list, updates: list) -> list:
@@ -466,6 +492,9 @@ def main():
               env.get_template("archive_month.html").render(
                   period=month, days=group_by_day(month["updates"]), newer=months[i - 1] if i > 0 else None,
                   older=months[i + 1] if i + 1 < len(months) else None, **common))
+
+    # Full-text search index (loaded by assets/app.js when the visitor starts searching)
+    write(os.path.join(public_dir, "search.json"), build_search_index(sites, updates))
 
     # Atom feeds: all sites, per site, per tag
     write(os.path.join(public_dir, "feeds", "all.xml"),

@@ -1,0 +1,28 @@
+{
+  "displayName": "G医t Firebase Hosting: 1日の転送量が 300 MB 超",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "直近24時間の送信量 > 300 MB",
+      "conditionThreshold": {
+        "filter": "metric.type=\"firebasehosting.googleapis.com/network/sent_bytes_count\" resource.type=\"firebase_domain\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "86400s",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 314572800,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "alertStrategy": { "autoClose": "86400s" },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Firebase Hosting の無料枠は 1 日 360 MB です。コンソールの Hosting > 使用状況で内訳を確認してください。"
+  }
+}

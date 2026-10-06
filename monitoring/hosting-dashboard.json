@@ -1,0 +1,37 @@
+{
+  "displayName": "G医t Firebase Hosting 転送量",
+  "mosaicLayout": {
+    "columns": 12,
+    "tiles": [
+      {
+        "width": 12,
+        "height": 5,
+        "widget": {
+          "title": "1日の送信量（バイト）／無料枠 360 MB・警告 300 MB",
+          "xyChart": {
+            "dataSets": [
+              {
+                "plotType": "STACKED_BAR",
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "metric.type=\"firebasehosting.googleapis.com/network/sent_bytes_count\" resource.type=\"firebase_domain\"",
+                    "aggregation": {
+                      "alignmentPeriod": "86400s",
+                      "perSeriesAligner": "ALIGN_DELTA",
+                      "crossSeriesReducer": "REDUCE_SUM"
+                    }
+                  }
+                }
+              }
+            ],
+            "thresholds": [
+              { "label": "警告 300 MB", "value": 314572800, "color": "YELLOW", "direction": "ABOVE" },
+              { "label": "無料枠 360 MB", "value": 377487360, "color": "RED", "direction": "ABOVE" }
+            ],
+            "yAxis": { "scale": "LINEAR" }
+          }
+        }
+      }
+    ]
+  }
+}

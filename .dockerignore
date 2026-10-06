@@ -1,0 +1,7 @@
+.git
+.github
+.venv-archive
+**/__pycache__
+supabase
+docs
+*.ps1

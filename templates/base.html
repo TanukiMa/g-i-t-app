@@ -14,7 +14,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="G医t" />
 {% block head_extra %}{% endblock %}
-<script src="{{ root }}assets/app.js" defer></script>
+<script src="{{ root }}assets/app.js" defer data-root="{{ root }}"></script>
 <script src="{{ root }}assets/pwa.js" defer data-root="{{ root }}"></script>
 {% if analytics.enabled %}<script src="{{ root }}assets/analytics.js" defer data-ga="{{ analytics.ga_id }}" data-cf="{{ analytics.cf_token }}"></script>{% endif %}
 </head>
