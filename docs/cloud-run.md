@@ -110,6 +110,21 @@ gcloud scheduler jobs create http g-i-t-stalk --location $REGION \
 gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
 ```
 
+## 6b. 公開先を選ぶ（`DEPLOY_TARGETS`）
+
+同じイメージが、次の公開先のどれにでも（複数同時にも）デプロイできます。`--set-env-vars DEPLOY_TARGETS=firebase,cloudflare-pages` のように、カンマ区切りで指定します（既定は `github-pages`）。各公開先は独立に実行され、1 つ失敗しても残りは実行されます（終了コードは失敗になります）。
+
+| 値 | 公開先 | 必要な設定 |
+|---|---|---|
+| `github-pages` | `g-i-t-data` の `gh-pages` ブランチ（従来どおり。1 コミットに保つ） | なし（`GH_PAT` を使う） |
+| `firebase` | Firebase Hosting | `FIREBASE_PROJECT`（サービスアカウントに `roles/firebasehosting.admin`） |
+| `cloudflare-pages` | Cloudflare Pages（`wrangler pages deploy`） | `CLOUDFLARE_API_TOKEN`（Pages の編集権限のみ）、`CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_PAGES_PROJECT`（先に `wrangler pages project create <名前>` で作成） |
+
+- **移行のとき:** 切り替え先を `DEPLOY_TARGETS` に足して、しばらく両方に出し、`xxx.web.app` / `xxx.pages.dev` で表示を確認してから、DNS（Route 53）の向き先を切り替えるのが安全です。
+- **Cloudflare は Pages を使います**（Workers の静的アセットではなく）。DNS が Route 53 のままだと、Workers のカスタムドメインは使えない見込みです（ゾーンが Cloudflare にある必要）。Pages なら、サブドメインへの CNAME だけで外部 DNS のまま使えます。
+- Cloudflare Pages の無料プランには、**1 デプロイあたり 20,000 ファイルまで**の上限があります（要確認）。差分ページが増え続けるので、将来は上限に近づくおそれがあります。
+- **DNS のラウンドロビンで 2 つの公開先に負荷を分けることは、お勧めしません。** それぞれが、自分の証明書（Let's Encrypt など）を、そのドメインへのアクセスで検証して発行・更新するため、問い合わせがもう片方に振られると、検証に失敗します。また、Firebase は A レコード、Cloudflare Pages は CNAME を求めるので、同じ名前に並べられません。負荷分散が目的なら、Cloudflare を手前に置く（DNS を Cloudflare に移す）ほうが確実です。
+
 ## 7. 独自ドメイン（サブドメイン）
 
 1. Firebase コンソール → Hosting → 「カスタムドメインを追加」→ `$DOMAIN`。

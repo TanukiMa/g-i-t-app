@@ -28,7 +28,7 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 LAN
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv tini \
  && rm -rf /var/lib/apt/lists/*
-RUN npm install -g diff2html-cli firebase-tools && npm cache clean --force
+RUN npm install -g diff2html-cli firebase-tools wrangler && npm cache clean --force
 COPY --from=stalker /out/bin/website-stalker /usr/local/bin/website-stalker
 
 # Dependencies only. The application code (scripts, templates, static, container/entrypoint.sh) is fetched

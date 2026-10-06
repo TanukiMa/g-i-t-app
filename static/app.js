@@ -37,7 +37,6 @@
   var shared = sharedList && sharedList.length ? new Set(sharedList) : null;
 
   var bar = $("#filter-bar");
-  var qInput = $("#filter-q");
   var tagSelect = $("#filter-tag");
   var countLabel = $("#filter-count");
   var emptyNote = $("#filter-empty");
@@ -50,13 +49,11 @@
   function apply() {
     var set = activeSet();
     var effective = shared ? "followed" : mode;
-    var query = qInput ? qInput.value.trim().toLowerCase() : "";
     var tag = tagSelect ? tagSelect.value : "";
     var items = $$("[data-site]");
     var shown = 0;
     items.forEach(function (el) {
       var ok = effective === "all" || set.has(el.getAttribute("data-site"));
-      if (ok && query) ok = (el.getAttribute("data-search") || "").indexOf(query) !== -1;
       if (ok && tag) ok = (el.getAttribute("data-tags") || "").split("|").indexOf(tag) !== -1;
       el.hidden = !ok;
       if (ok) shown++;
@@ -150,7 +147,7 @@
 
   // ---- full-text search over every update summary (search.json, loaded on first use) ----
   var ROOT = (document.currentScript && document.currentScript.getAttribute("data-root")) || "";
-  var MAX_HITS = 50;
+  var MAX_HITS = 50, MAX_SITES = 20;
   var index = null, indexPromise = null;
 
   function norm(text) { return String(text || "").normalize("NFKC").toLowerCase(); }
@@ -218,6 +215,11 @@
     return e;
   }
 
+  function hostOf(url) {
+    var m = /^https?:\/\/(?:www\.)?([^\/?#]+)/i.exec(url || "");
+    return m ? m[1] : "";
+  }
+
   function renderResults(box, query) {
     var ts = terms(query);
     box.textContent = "";
@@ -227,13 +229,14 @@
     var hits = index.updates.filter(function (u) { return matches(u.hay, ts); });   // newest first
     if (!siteHits.length && !hits.length) { box.appendChild(el("p", "gsearch-empty", "見つかりませんでした。")); return; }
 
-    siteHits.slice(0, 5).forEach(function (s) {
+    siteHits.slice(0, MAX_SITES).forEach(function (s) {
       var a = el("a", "gsearch-site");
       a.href = ROOT + "sites/" + s.slug + "/history.html";
       highlight(a, s.name, ts);
-      a.appendChild(el("span", "muted", "  サイト"));
+      a.appendChild(el("span", "muted", "  " + hostOf(s.url)));
       box.appendChild(a);
     });
+    if (siteHits.length > MAX_SITES) box.appendChild(el("p", "gsearch-count", "ほか " + (siteHits.length - MAX_SITES) + " サイト（語を足して絞り込んでください）"));
     box.appendChild(el("p", "gsearch-count", "更新 " + hits.length + " 件" + (hits.length > MAX_HITS ? "（新しい順に " + MAX_HITS + " 件を表示）" : "")));
     hits.slice(0, MAX_HITS).forEach(function (u) {
       var item = el("div", "gsearch-hit");
@@ -262,7 +265,7 @@
     var wrap = el("div", "gsearch");
     var input = el("input");
     input.type = "search";
-    input.placeholder = "全文検索（要約・サイト名）— 「/」で移動";
+    input.placeholder = "サイト名・ドメイン・要約を検索 — 「/」で移動";
     input.setAttribute("aria-label", "全文検索");
     input.autocomplete = "off";
     var box = el("div", "gsearch-results");
@@ -310,7 +313,6 @@
           apply();
         });
       });
-      if (qInput) qInput.addEventListener("input", apply);
       if (tagSelect) tagSelect.addEventListener("change", apply);
       var share = $("#share-btn");
       if (share) {

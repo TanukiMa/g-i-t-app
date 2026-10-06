@@ -14,7 +14,21 @@ elif [ "$cmd" != "stalk" ]; then
   exit 2
 fi
 
-for v in GH_PAT SUPABASE_URL SUPABASE_KEY WEBSITE_STALKER_FROM FIREBASE_PROJECT SITE_BASE_URL; do
+# Where the dashboard is published: a comma separated list, every target is deployed independently.
+#   github-pages      force-push data/public to the gh-pages branch of the data repository (the former stalk.yml step)
+#   firebase          Firebase Hosting                    needs FIREBASE_PROJECT
+#   cloudflare-pages  Cloudflare Pages (wrangler)         needs CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_PAGES_PROJECT
+DEPLOY_TARGETS="${DEPLOY_TARGETS:-github-pages}"
+needed="GH_PAT SUPABASE_URL SUPABASE_KEY WEBSITE_STALKER_FROM SITE_BASE_URL"
+for t in ${DEPLOY_TARGETS//,/ }; do
+  case "$t" in
+    github-pages) ;;
+    firebase) needed="$needed FIREBASE_PROJECT" ;;
+    cloudflare-pages) needed="$needed CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_PAGES_PROJECT" ;;
+    *) echo "Unknown DEPLOY_TARGETS entry: $t (github-pages, firebase, cloudflare-pages)" >&2; exit 1 ;;
+  esac
+done
+for v in $needed; do
   if [ -z "${!v:-}" ]; then echo "Missing environment variable: $v" >&2; exit 1; fi
 done
 DATA_REPO="${DATA_REPO:-TanukiMa/g-i-t-data}"
@@ -40,10 +54,31 @@ status=$?
 git -C data gc --quiet || true
 echo "g-i-t-data .git size: $(du -sm data/.git | cut -f1) MB"
 
+deploy_github_pages() {
+  local dir=/tmp/ghp
+  rm -rf "$dir" && mkdir -p "$dir" && cp -a data/public/. "$dir/" && touch "$dir/.nojekyll" || return 1
+  git -C "$dir" init -q -b gh-pages &&
+  git -C "$dir" add -A &&
+  git -C "$dir" commit -q -m "Deploy $(date -u +%Y-%m-%dT%H:%M:%SZ)" &&
+  git -C "$dir" push -q --force "https://github.com/${DATA_REPO}.git" gh-pages:gh-pages   # a single commit, like force_orphan
+}
+
+deploy_firebase() {
+  cp "$APP_DIR/container/firebase.json" /work/firebase.json &&
+  firebase deploy --only hosting --project "$FIREBASE_PROJECT" --non-interactive
+}
+
+deploy_cloudflare_pages() {
+  WRANGLER_SEND_METRICS=false wrangler pages deploy data/public     --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch "${CLOUDFLARE_PAGES_BRANCH:-main}" --commit-dirty=true
+}
+
 # Deploy whenever a dashboard exists, also after a partial failure (the exit status still reports it).
+# One failing target does not stop the others.
 if [ -f data/public/index.html ]; then
-  cp "$APP_DIR/container/firebase.json" /work/firebase.json
-  firebase deploy --only hosting --project "$FIREBASE_PROJECT" --non-interactive || status=1
+  for t in ${DEPLOY_TARGETS//,/ }; do
+    echo "=== Deploy: $t ==="
+    if "deploy_${t//-/_}"; then echo "Deploy $t: ok"; else echo "Deploy $t: FAILED" >&2; status=1; fi
+  done
 else
   echo "data/public/index.html is missing; skipping deploy." >&2
   status=1

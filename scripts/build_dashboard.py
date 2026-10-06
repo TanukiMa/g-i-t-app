@@ -166,7 +166,6 @@ def build_site_infos(configured: list, updates: list) -> list:
         sites.append({
             **site,
             "tags": site.get("tags", []),
-            "search": f"{site['name']} {hostname(site.get('url', ''))} {slug}".lower(),
             "feed": f"feeds/{slug}.xml",
             "updates": ups,
             "count": len(real),
@@ -473,7 +472,6 @@ def main():
         jst_hm=lambda v: to_jst(v, with_suffix=False)[11:],
         site_name=lambda slug: names.get(slug, slug),
         site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
-        site_search=lambda slug: site_by_slug.get(slug, {}).get("search", slug),
     )
     env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
                        analytics=analytics_settings())

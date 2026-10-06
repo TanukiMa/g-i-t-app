@@ -18,7 +18,7 @@
   {{ filter_bar(tags, 'sites') }}
   <div id="content">
     {% for s in sites %}
-    <section class="entry{% if not s.count %} entry--initial{% endif %}" data-site="{{ s.slug }}" data-tags="{{ s.tags|join('|') }}" data-search="{{ s.search }}">
+    <section class="entry{% if not s.count %} entry--initial{% endif %}" data-site="{{ s.slug }}" data-tags="{{ s.tags|join('|') }}">
       <h2><a class="site-name" href="sites/{{ s.slug }}/{{ site_page }}">{{ s.name }}</a> {{ follow_btn(s.slug) }}</h2>
       <ul>
         <li><a class="site-chip" href="{{ s.url }}" target="_blank" rel="noopener noreferrer" title="{{ s.url }}">{{ s.url|hostname }}</a></li>

@@ -20,11 +20,10 @@
   font: inherit; background: transparent; color: var(--muted); border: 0; padding: 0.3em 0.9em; cursor: pointer;
 }
 .filter-bar .seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600; }
-.filter-bar input[type="search"], .filter-bar select {
+.filter-bar select {
   font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--border);
   border-radius: 2em; padding: 0.3em 0.9em; min-width: 0;
 }
-.filter-bar input[type="search"] { flex: 1 1 12em; max-width: 20em; }
 .filter-bar .pill-btn {
   font: inherit; color: var(--muted); background: transparent; border: 1px solid var(--border);
   border-radius: 2em; padding: 0.3em 0.9em; cursor: pointer;
