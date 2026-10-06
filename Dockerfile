@@ -1,10 +1,12 @@
 # syntax=docker/dockerfile:1
-# G医t pipeline image: website-stalker + Python pipeline + diff2html + Firebase CLI.
+# G医t pipeline image: website-stalker + Python dependencies + diff2html + Firebase CLI.
+# The image holds only tools and dependencies; the code of g-i-t-app is fetched at start (container/bootstrap.sh).
 #
 # Settings are read from environment variables (GH_PAT, SUPABASE_URL, ...; see docs/cloud-run.md):
 #   Cloud Run Job   --set-env-vars / --set-secrets (Secret Manager); the image contains no .env
 #   local test      docker run --rm --env-file .env g-i-t-app            # stalk (default)
 #                   docker run --rm --env-file .env g-i-t-app archive    # archive worker
+#                   add -v "$PWD:/app" to run your working copy instead of fetching the code from GitHub
 
 FROM debian:trixie-slim AS stalker
 # Rust comes from rustup (not from a distribution package or the rust image). "stable" is enough:
@@ -29,12 +31,13 @@ RUN apt-get update \
 RUN npm install -g diff2html-cli firebase-tools && npm cache clean --force
 COPY --from=stalker /out/bin/website-stalker /usr/local/bin/website-stalker
 
-WORKDIR /app
-COPY requirements.txt .
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install -r requirements.txt
+# Dependencies only. The application code (scripts, templates, static, container/entrypoint.sh) is fetched
+# from GitHub on every start by bootstrap.sh; rebuild this image only when requirements.txt or this file changes.
+COPY requirements.txt /opt/requirements.baked.txt
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install -r /opt/requirements.baked.txt
 ENV PATH=/opt/venv/bin:$PATH
-COPY . .
-RUN chmod +x container/entrypoint.sh
+COPY container/bootstrap.sh /usr/local/bin/bootstrap.sh
+RUN chmod +x /usr/local/bin/bootstrap.sh
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/app/container/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/bootstrap.sh"]
 CMD ["stalk"]
