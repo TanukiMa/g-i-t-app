@@ -157,8 +157,8 @@ gcloud run jobs create g-i-t-archive --image $IMAGE --region $REGION --args=arch
 ```bash
 docker build -t g-i-t-app .
 # 作業中のコードで試すときは、-v "$PWD:/app" を付ける（付けないと GitHub の main を取得する）
-docker run --rm -e GH_PAT -e SUPABASE_URL -e SUPABASE_KEY -e WEBSITE_STALKER_FROM -e GEMINI_API_KEY \
-  -e FIREBASE_PROJECT=dummy -e SITE_BASE_URL=https://example.com/ g-i-t-app
+cp .env.sample .env      # 値を記入する（.env は git・docker の対象外）
+docker run --rm --env-file .env g-i-t-app          # wslc でも同じ: wslc run --rm --env-file .env g-i-t-app
 ```
 
 デプロイ（最後の手順）は、認証がないので失敗します。そこまでの clone・取得・push の動作を確認できます。**これは本物の g-i-t-data に push するので、確認用のリポジトリを `-e DATA_REPO=<owner>/<repo>` で指定してください。**

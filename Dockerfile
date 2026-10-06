@@ -9,17 +9,17 @@
 #                   add -v "$PWD:/app" to run your working copy instead of fetching the code from GitHub
 
 FROM debian:trixie-slim AS stalker
-# Rust comes from rustup (not from a distribution package or the rust image). "stable" is enough:
+# rustup is installed with apt (Debian's own package, signed by the distribution; no "curl | sh"). It provides
+# the cargo/rustc proxies in /usr/bin; the toolchain itself is then fetched by rustup. "stable" is enough:
 # the fork uses edition 2024 (Rust 1.85 or newer). Pin it with --build-arg RUST_TOOLCHAIN=1.xx.x.
 ARG RUST_TOOLCHAIN=stable
 # Empty = current HEAD of the fork; set a commit SHA to pin it.
 ARG WS_REV=""
-ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config \
+ && apt-get install -y --no-install-recommends ca-certificates git build-essential pkg-config rustup \
  && rm -rf /var/lib/apt/lists/*
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+RUN rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
 RUN cargo install --locked --git https://github.com/TanukiMa/website-stalker.git ${WS_REV:+--rev $WS_REV} --root /out
 
 FROM node:22-trixie-slim

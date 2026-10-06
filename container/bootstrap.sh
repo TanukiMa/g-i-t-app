@@ -30,4 +30,5 @@ if ! diff -q <(tr -d '\r' < /opt/requirements.baked.txt) <(tr -d '\r' < "$app/re
 fi
 
 export APP_DIR="$app"
-exec "$app/container/entrypoint.sh" "$@"
+# bash, not exec of the file: a file checked out from GitHub may lack the executable bit (it was added on Windows)
+exec bash "$app/container/entrypoint.sh" "$@"
