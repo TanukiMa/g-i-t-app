@@ -19,7 +19,7 @@
   ],
   "shortcuts": [
     {
-      "name": "監視サイト一覧",
+      "name": "サイト一覧",
       "short_name": "サイト一覧",
       "url": "./sites.html",
       "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]

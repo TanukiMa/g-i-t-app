@@ -271,7 +271,7 @@ def build_atom(title: str, feed_path: str, page_path: str, entries: list, names:
         ET.SubElement(entry, _atom("id")).text = f"tag:{host},2026:g-i-t-data/{slug}/{u.get('commit_hash', '')}"
         ET.SubElement(entry, _atom("updated")).text = stamp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         ET.SubElement(entry, _atom("link"), rel="alternate", type="text/html", href=f"{base}sites/{slug}/{SITE_PAGE}")
-        links = [f'<a href="{html.escape(u.get("url", ""), quote=True)}">監視対象ページ</a>']
+        links = [f'<a href="{html.escape(u.get("url", ""), quote=True)}">確認先のページ</a>']
         if u.get("diff_file"):
             links.append(f'<a href="{base}sites/{slug}/{u["diff_file"]}">差分</a>')
         for a in u.get("archives", []):
@@ -331,7 +331,7 @@ def add_diff_navigation(public_dir: str, names: dict) -> int:
                    f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
                    f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
                    f'<a href="../../index.html">全体タイムライン</a>'
-                   f'<a href="../../sites.html">監視サイト一覧</a>'
+                   f'<a href="../../sites.html">サイト一覧</a>'
                    f'<span>差分 {html.escape(name[5:-5])}</span></nav>')
             page = re.sub(r"<body[^>]*>", lambda m: m.group(0) + nav, page, count=1)
             page = page.replace("</head>", DIFF_NAV_STYLE + "</head>", 1)

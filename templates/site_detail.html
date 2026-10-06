@@ -16,8 +16,8 @@
       {% for tag in site.tags %}<li><span class="tag">{{ tag }}</span></li>{% endfor %}
     </ul>
     <p>
-      {% if site.count %}更新 {{ site.count }} 回 ・ 最終更新 {{ site.last }}{% else %}まだ更新はありません（監視中）{% endif %}
-      {% if site.first %} ・ 監視開始 {{ site.first }}{% endif %}
+      {% if site.count %}更新 {{ site.count }} 回 ・ 最終更新 {{ site.last }}{% else %}まだ更新はありません（確認中）{% endif %}
+      {% if site.first %} ・ 確認開始 {{ site.first }}{% endif %}
     </p>
     <div class="links">
       {% if site.wayback %}<a href="{{ site.wayback }}" target="_blank" rel="noopener noreferrer">📦 Wayback Machine</a>{% endif %}

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from "_macros.html" import nav, footer, status, filter_bar, follow_btn %}
-{% set root = '' %}{% set style = 'github' %}{% set page_title = '監視サイト一覧 - G医t' %}
+{% set root = '' %}{% set style = 'github' %}{% set page_title = 'サイト一覧 - G医t' %}
 {% block content %}
   {{ nav('', root) }}
   <header>
-    <h1>監視サイト一覧</h1>
+    <h1>サイト一覧</h1>
     {{ status(generated, sites, root) }}
   </header>
   <a class="page-back" href="index.html">← 全体タイムラインへ戻る</a>
