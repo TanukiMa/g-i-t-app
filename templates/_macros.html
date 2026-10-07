@@ -48,11 +48,13 @@
     documents linked from the page are archived by archive_worker.py but not listed. -#}
 {% macro entry(item, site_prefix='') -%}
 <section class="entry{% if item.summary == initial_summary %} entry--initial{% endif %}" id="c-{{ item.commit_hash[:7] }}" data-commit="{{ item.commit_hash[:7] }}" data-day="{{ (item.created_at|jst)[:10] }}" data-time="{{ item.created_at|jst_hm }}" data-excerpt="{{ item.summary|excerpt(70) }}" data-site="{{ item.site_slug }}" data-tags="{{ item.site_slug|site_tags }}">
-      <h2>{{ item.created_at|jst }} — {% if site_prefix %}<a class="site-name" href="{{ site_prefix }}{{ site_page }}">{{ item.site_slug|site_name }}</a>{% else %}{{ item.site_slug|site_name }}{% endif %} {{ follow_btn(item.site_slug) }}</h2>
+      {#- line 1: the site (its configured name); line 2: when the update was detected -#}
+      <h2>{% if site_prefix %}<a class="site-name" href="{{ site_prefix }}{{ site_page }}">{{ item.site_slug|site_name }}</a>{% else %}{{ item.site_slug|site_name }}{% endif %} {{ follow_btn(item.site_slug) }}</h2>
+      <p class="entry-time"><time datetime="{{ item.created_at }}">{{ item.created_at|jst }}</time> {% if item.summary == initial_summary %}に記録を開始{% else %}に更新を検知{% endif %}</p>
       <ul>
         <li><a class="site-chip" href="{{ item.url }}" target="_blank" rel="noopener noreferrer" title="{{ item.url }}">{{ item.url|hostname }}</a></li>
       </ul>
-      <p>コミット: <a class="commit-badge" href="{{ data_repo_url }}/commit/{{ item.commit_hash }}" target="_blank" rel="noopener noreferrer">{{ item.commit_hash[:7] }}</a></p>
+      <p class="entry-commit">commit: <a class="commit-badge" href="{{ data_repo_url }}/commit/{{ item.commit_hash }}" target="_blank" rel="noopener noreferrer">{{ item.commit_hash[:7] }}</a></p>
       <div class="summary">{{ item.summary|md }}</div>
       {%- set page = item.archives|selectattr('kind', 'equalto', 'page')|first %}
       {% set page_done = page and page.status == 'done' and page.archive_url %}

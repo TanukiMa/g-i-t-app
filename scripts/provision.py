@@ -167,7 +167,7 @@ def run_cmd(cmd, cwd=None):
 
 
 # G-I-T metadata in config.yaml; website-stalker rejects unknown keys, so these are never written out.
-RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "remove", "default_ignore")
+RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "remove", "default_ignore", "report_reorder")
 
 # Rules applied to EVERY site unless it sets `default_ignore: false`. WordPress (and many CMSs) append a
 # changing number to static files, e.g. file.pdf?1700000001 or logo.png?ver=6.4.2, which would otherwise be

@@ -2,6 +2,7 @@ import os
 import sys
 import shutil
 import threading
+from collections import Counter
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import subprocess
@@ -335,7 +336,37 @@ def render_diff_html(commit_hash: str, data_dir: str, rel_site: str):
     return html.stdout
 
 
-def process_site(data_dir: str, site_slug: str, rebaseline: bool = False):
+def is_reorder_only(diff_text: str) -> bool:
+    """True when the diff only moves lines around: in every changed file the lines that were added are exactly the
+    lines that were removed (compared without leading/trailing white space, blank lines ignored).
+
+    Typical cases: tabs or boxes that swap places, a list that is shuffled on every request, "recommended" items in
+    a different order. Nothing was added, removed or reworded, so there is nothing to report.
+    """
+    blocks, current, in_hunk = [], None, False
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            current = {"added": Counter(), "removed": Counter(), "hunks": 0}
+            blocks.append(current)
+            in_hunk = False
+        elif current is None:
+            continue
+        elif line.startswith("@@"):
+            in_hunk = True
+            current["hunks"] += 1
+        elif in_hunk and line[:1] in "+-":
+            text = line[1:].strip()
+            if text:
+                current["added" if line[0] == "+" else "removed"][text] += 1
+    if not blocks:
+        return False
+    for b in blocks:
+        if b["hunks"] == 0 or b["added"] != b["removed"] or not b["added"]:
+            return False                      # binary / mode-only / a real addition or removal somewhere
+    return True
+
+
+def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report_reorder: bool = False):
     """Stalk one site and commit its changes as one commit. Returns a pending log record or None.
 
     With rebaseline=True (the site's ignore rules were just changed) the resulting change is committed
@@ -381,6 +412,13 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False):
         git(["commit", "-m", f"Re-baseline {site_slug} after ignore rule change", "--only", "--", rel_site], data_dir)
         return None
     raw_diff = git(["diff", "--cached", "--", rel_site], data_dir).stdout
+
+    # Same lines in a different order (swapped tabs, a shuffled list ...): not an update. The new order is still
+    # committed so that the stored page stays exact, but there is no summary, diff page, row or archive request.
+    if not is_initial and not report_reorder and is_reorder_only(raw_diff):
+        print(f"{site_slug}: the same content in a different order; committed, not reported as an update.")
+        git(["commit", "-m", f"Reorder {site_slug} (same content, different order)", "--only", "--", rel_site], data_dir)
+        return None
 
     # 3. The AI summary is NOT made here: it does not change the commit, and waiting for the AI site by site is what
     #    made runs slow. main() summarizes all changed sites in parallel after the push. (Not for the initial
@@ -453,6 +491,9 @@ def main():
     # Sites whose ignore rules changed in this run: their stored pages change shape once (e.g. cache-busting
     # numbers disappear). That is not an update of the site, so it is committed as a new baseline only.
     rebaseline = set(prov["rules_changed"])
+    # Sites that want a changed order reported as an update (`report_reorder: true` in config.yaml)
+    report_reorder = {provision.target_slug(t) for t in provision.parse_stalker_yaml(args.data_dir)
+                      if isinstance(t, dict) and t.get("report_reorder") is True}
 
     # Step 2: One commit per changed site
     print("=== Step 2: Stalk & Process Sites ===")
@@ -465,7 +506,8 @@ def main():
                 print(f"Run time budget used up: {len(entries) - done} site(s) are left for the next run.")
                 break
             try:
-                record = process_site(args.data_dir, entry, rebaseline=entry in rebaseline)
+                record = process_site(args.data_dir, entry, rebaseline=entry in rebaseline,
+                                      report_reorder=entry in report_reorder)
                 if record:
                     pending.append(record)
             except Exception as e:

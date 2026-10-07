@@ -378,7 +378,7 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
             if upd and upd.get("commit_hash"):
                 commit = html.escape(str(upd["commit_hash"]), quote=True)
                 rows.append(f'<dt>記録</dt><dd><a href="{DATA_REPO_URL}/commit/{commit}" target="_blank" '
-                            f'rel="noopener noreferrer">コミット {commit[:7]}</a></dd>')
+                            f'rel="noopener noreferrer">commit {commit[:7]}</a></dd>')
             summary = ""
             text = (upd or {}).get("summary") or ""
             if text and text not in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):

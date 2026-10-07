@@ -159,3 +159,12 @@ main { max-width: none; width: 100%; padding-inline: clamp(16px, 3vw, 56px); }
 .gtl-gap { font: 11px system-ui, sans-serif; fill: var(--muted); text-anchor: middle; paint-order: stroke; stroke: var(--bg); stroke-width: 6px; }
 .gtl-gap-line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 5; }
 .gtl-hash, .gtl-day { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+
+/* ---- update card: line 1 = the site, line 2 = when the update was detected ---- */
+.entry h2 { font-size: 1.1rem; line-height: 1.4; margin: 0 0 0.15rem; }
+.entry .entry-time { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.85em; }
+.entry .entry-time time { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.entry .entry-commit { margin-top: 0.15rem; }
+/* minimal: its h2 used to be a small grey italic date line; it is now the site name and must stand out */
+.style-minimal .entry h2 { font-style: normal; font-weight: 600; color: var(--fg); font-size: 1.15rem; }
+.style-minimal .entry .entry-time { font-size: 0.8em; }
