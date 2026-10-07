@@ -70,13 +70,40 @@ function Require-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) { throw "$Name コマンドが見つかりません。" }
 }
 
+# supabase の起動方法を決める。supabase.exe があればそれを使う。なければ (npm の shim や関数だと引数が落ちることがあるので)
+# shim を通さずに npx で直接呼ぶ。
+function Get-SupabaseCommand {
+    $app = Get-Command supabase -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($app -and $app.Source -match '\.exe$') { return @{ Exe = $app.Source; Pre = @() } }
+    if (Get-Command npx -ErrorAction SilentlyContinue) { return @{ Exe = 'npx'; Pre = @('--yes', 'supabase') } }
+    if ($app) { return @{ Exe = $app.Source; Pre = @() } }
+    throw 'supabase コマンドも npx も見つかりません。'
+}
+
+# SQL (ASCII のみ) を一時ファイルに書いて `supabase db query --linked -f` で実行する。引数で渡すと、&・|・' などが
+# cmd/npx の経由で壊れることがある。-Mutating は -DryRun では実行しない。
+function Invoke-SupabaseSql {
+    param([Parameter(Mandatory)][string]$Sql, [switch]$Mutating)
+    if ($Mutating -and $DryRun) { Write-Host "[dry-run] supabase db query --linked: $Sql" -ForegroundColor DarkYellow; return '' }
+    $cli = Get-SupabaseCommand
+    $file = Join-Path ([IO.Path]::GetTempPath()) ("reset-data-{0}.sql" -f [guid]::NewGuid().ToString('N'))
+    [IO.File]::WriteAllText($file, $Sql, (New-Object System.Text.UTF8Encoding($false)))
+    try {
+        $env:npm_config_yes = 'true'   # npx 経由のとき、「Ok to proceed?」で止まらないようにする
+        $cliArgs = @($cli.Pre) + @('db', 'query', '--linked', '-f', $file)
+        return Exec $cli.Exe $cliArgs -WorkDir $AppRoot
+    } finally {
+        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    }
+}
+
 try {
     Write-Host "=== g-i-t-data 初期化 $(if ($DryRun) { '(ドライラン)' }) ===" -ForegroundColor Cyan
 
     # ---- 1. 事前チェック ----
     Require-Command git
     if (-not $SkipWorkflows) { Require-Command gh }
-    if (-not $SkipSupabase)  { Require-Command supabase }
+    if (-not $SkipSupabase)  { [void](Get-SupabaseCommand) }
     if (-not (Test-Path -LiteralPath $DataDir)) { throw "DataDir が存在しません: $DataDir" }
     $DataDir = (Resolve-Path -LiteralPath $DataDir).Path
 
@@ -154,21 +181,21 @@ try {
         # exist. Never trust the exit code alone: count the rows afterwards (ASCII marker -> independent of the console encoding).
         $countSql = "select 'COUNTS ' || (select count(*) from updates) || ' ' || (select count(*) from archive_queue) as c;"
         function Get-SupabaseCounts {
-            $out = Exec supabase @('db', 'query', '--linked', $countSql) -WorkDir $AppRoot
+            $out = Invoke-SupabaseSql $countSql
             if ($out -notmatch 'COUNTS (\d+) (\d+)') {
                 throw "Supabase の件数を確認できませんでした。次を実行して、updates と archive_queue が空か確認してください:`n  supabase db query --linked `"$countSql`"`n出力: $out"
             }
             return @([int]$Matches[1], [int]$Matches[2])
         }
 
-        Exec supabase @('db', 'query', '--linked', 'truncate updates, archive_queue restart identity;') -WorkDir $AppRoot -Mutating | Out-Null
+        Invoke-SupabaseSql 'truncate updates, archive_queue restart identity;' -Mutating | Out-Null
         if (-not $DryRun) {
             $counts = Get-SupabaseCounts
             if ($counts[0] -ne 0 -or $counts[1] -ne 0) {
                 # `truncate` reported success but removed nothing (seen with `supabase db query`): fall back to DELETE.
                 Write-Host "truncate では空になりませんでした (updates=$($counts[0]), archive_queue=$($counts[1]))。delete で空にします。" -ForegroundColor Yellow
-                Exec supabase @('db', 'query', '--linked', 'delete from archive_queue;') -WorkDir $AppRoot | Out-Null
-                Exec supabase @('db', 'query', '--linked', 'delete from updates;') -WorkDir $AppRoot | Out-Null
+                Invoke-SupabaseSql 'delete from archive_queue;' | Out-Null
+                Invoke-SupabaseSql 'delete from updates;' | Out-Null
                 $counts = Get-SupabaseCounts
             }
             if ($counts[0] -ne 0 -or $counts[1] -ne 0) {
