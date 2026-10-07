@@ -130,6 +130,11 @@ DEFAULT_IGNORE_RULES = [
         "pattern": r"""(?i)\s*<img\b[^>]*\balt=["'](?:new|ＮＥＷ|新着)[!！]?["'][^>]*>""",
         "replace": "",
     },
+    # Cloudflare's e-mail protection re-encrypts every address with a new random key on each request:
+    # <a href="/cdn-cgi/l/email-protection#a5cc..."> and <span data-cfemail="a4cd...">. Only the key is removed;
+    # the link and any plain-text address (e.g. in title="") stay, so a changed address is still seen there.
+    {"pattern": r"(/cdn-cgi/l/email-protection)#[0-9A-Fa-f]+", "replace": "$1"},
+    {"pattern": r'data-cfemail="[0-9A-Fa-f]+"', "replace": 'data-cfemail=""'},
 ]
 
 # website-stalker uses the Rust `regex` crate: no look-around and no back-references.

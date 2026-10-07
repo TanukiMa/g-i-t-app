@@ -79,6 +79,8 @@ WordPress などは、静的ファイルへのリンクに、アクセスのた�
 - 既存のサイトにも、次回の実行で追記されます。**追記した回の変化は「更新」として記録されません**（`Re-baseline <slug> after ignore rule change` というコミットで、基準を取り直すだけ）。
 - 効かせたくないサイトは、`default_ignore: false` を書きます。
 
+**もう1つ：Cloudflare の「メールアドレス保護」。** Cloudflare 配下のサイトは、メールアドレスのリンクを暗号化し、**アクセスのたびに違う鍵**で作り直します（`/cdn-cgi/l/email-protection#a5cc…`、`<span data-cfemail="a4cd…">`）。内容が同じでも毎回変わるため、鍵の部分（16進数）だけを消します（`/cdn-cgi/l/email-protection` と `data-cfemail=""` が残る）。`title=""` などに平文のアドレスが残っていれば、その変更は検知されます。暗号化された形だけのときは、アドレス自体の変更は検知されません。
+
 **もう1つ：期限付きの「NEW」バッジ。** 「NEW」「New!」「ＮＥＷ」「新着」だけを中身に持つ `<span>`・`<b>`・`<em>`・`<strong>`・`<i>`・`<font>`・`<small>`・`<sup>`、および `alt="NEW"` の `<img>` を、直前の空白ごと消します。掲載から数日で消えるバッジが「更新」と誤検知されるのを防ぐためです。`<span>New York</span>` や `<span>NEW 通知</span>` のように、ほかの文字を含むものは消しません。
 
 ### 全サイト共通の `ignore`（任意）

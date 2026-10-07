@@ -296,6 +296,164 @@
     });
   }
 
+  // ---- visual timeline of a site's updates (history page): an SVG drawn here from the cards below it ----
+  // Nothing is stored anywhere: the points come from the cards' data attributes (hash, day, summary excerpt).
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var GTL_FIRST = 200;   // newest points drawn at first; a button draws all of them (there is no upper limit)
+
+  function svgEl(tag, attrs, text) {
+    var e = document.createElementNS(SVGNS, tag);
+    Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function initTimeline() {
+    var host = $("#gtl");
+    if (!host) return;
+    var cards = $$("#content .entry[data-commit]");
+    if (cards.length < 2) return;                       // a single point is no timeline
+    var DAY = 86400000, WEEK = 7 * DAY;
+    var DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+    // Every card carries its JST day and time. Dates are handled as if they were UTC: only differences matter.
+    var items = [];
+    cards.forEach(function (c, order) {
+      var d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(c.getAttribute("data-day") || "");
+      var t = /^(\d{2}):(\d{2})$/.exec(c.getAttribute("data-time") || "");
+      if (!d || !t) return;
+      var ms = Date.UTC(+d[1], +d[2] - 1, +d[3], +t[1], +t[2]);
+      var dayStart = Date.UTC(+d[1], +d[2] - 1, +d[3]);
+      var sinceMonday = (new Date(dayStart).getUTCDay() + 6) % 7;
+      items.push({ id: c.id, hash: c.getAttribute("data-commit"), day: d[1] + "/" + d[2] + "/" + d[3], time: t[1] + ":" + t[2],
+                   text: c.getAttribute("data-excerpt") || "", initial: c.classList.contains("entry--initial"),
+                   ms: ms, week: dayStart - sinceMonday * DAY, order: order });
+    });
+    if (items.length < 2) return;
+    items.sort(function (a, b) { return a.ms - b.ms || b.order - a.order; });   // oldest first (cards are newest first)
+    var all = items;
+    var showAll = all.length <= GTL_FIRST;
+    items = showAll ? all : all.slice(all.length - GTL_FIRST);
+
+    var PADX = 18, MIN_W = 760, FLAG_W = 76, FLAG_H = 42, HEAD = 36, TIMER = null, lastWidth = 0;
+
+    function draw() {
+      var width = Math.max(MIN_W, host.clientWidth || MIN_W);
+      lastWidth = host.clientWidth || MIN_W;
+      var x0 = PADX, x1 = width - PADX, span = x1 - x0, dayW = span / 7;
+
+      // group by week (a row = one week, Monday to Sunday), keep the order
+      var weeks = [], byWeek = {};
+      items.forEach(function (it) {
+        var w = byWeek[it.week];
+        if (!w) { w = byWeek[it.week] = { start: it.week, points: [] }; weeks.push(w); }
+        w.points.push(it);
+      });
+
+      // lanes: points whose flags would overlap go to a higher lane
+      weeks.forEach(function (w) {
+        var laneEnd = [];
+        w.points.forEach(function (it) {
+          it.x = x0 + (it.ms - w.start) / WEEK * span;
+          var half = FLAG_W / 2, k = 0;
+          while (k < laneEnd.length && laneEnd[k] > it.x - half) k++;
+          laneEnd[k] = it.x + half;
+          it.lane = k;
+        });
+        w.lanes = laneEnd.length;
+      });
+
+      var svg = svgEl("svg", { width: width, role: "img" });
+      svg.appendChild(svgEl("title", {}, "更新のタイムライン（1 行が 1 週間、月曜から日曜、JST。上が古く、下が新しい）"));
+      var y = 8, prev = null;
+      weeks.forEach(function (w) {
+        if (prev !== null) {
+          var gap = Math.round((w.start - prev) / WEEK) - 1;
+          if (gap > 0) {                                  // weeks without an update are not drawn one by one
+            svg.appendChild(svgEl("line", { x1: x0, y1: y + 10, x2: x1, y2: y + 10, "class": "gtl-gap-line" }));
+            svg.appendChild(svgEl("text", { x: width / 2, y: y + 14, "class": "gtl-gap" }, "更新のない週が " + gap + " 週続きました"));
+            y += 28;
+          }
+        }
+        prev = w.start;
+        var axisY = y + HEAD + w.lanes * FLAG_H + 14;
+        var startD = new Date(w.start), endD = new Date(w.start + 6 * DAY);
+        svg.appendChild(svgEl("text", { x: x0, y: y + 10, "class": "gtl-week" },
+          startD.getUTCFullYear() + "/" + pad2(startD.getUTCMonth() + 1) + "/" + pad2(startD.getUTCDate()) + " (Mon) 〜 " +
+          endD.getUTCFullYear() + "/" + pad2(endD.getUTCMonth() + 1) + "/" + pad2(endD.getUTCDate()) + " (Sun)"));
+        for (var i = 0; i < 7; i++) {
+          var dd = new Date(w.start + i * DAY), gx = x0 + i * dayW;
+          svg.appendChild(svgEl("line", { x1: gx, y1: y + 16, x2: gx, y2: axisY + 4, "class": "gtl-grid" }));
+          svg.appendChild(svgEl("text", { x: gx + 4, y: y + 28, "class": "gtl-dayname" }, DOW[dd.getUTCDay()] + " " + pad2(dd.getUTCMonth() + 1) + "/" + pad2(dd.getUTCDate())));
+        }
+        svg.appendChild(svgEl("line", { x1: x1, y1: y + 16, x2: x1, y2: axisY + 4, "class": "gtl-grid" }));
+        svg.appendChild(svgEl("line", { x1: x0, y1: axisY, x2: x1, y2: axisY, "class": "gtl-line" }));
+
+        w.points.forEach(function (it) {
+          var flagBottom = axisY - 14 - it.lane * FLAG_H;           // the three text lines sit above the wedge
+          var tx = Math.min(Math.max(it.x, x0 + FLAG_W / 2), x1 - FLAG_W / 2);
+          var a = svgEl("a", { href: "#" + it.id, "class": "gtl-node" + (it.initial ? " gtl-initial" : "") });
+          a.appendChild(svgEl("title", {}, it.day + " " + it.time + " JST  " + it.hash + (it.initial ? "  記録を開始" : "") + (it.text ? "\n" + it.text : "")));
+          if (it.lane > 0) a.appendChild(svgEl("line", { x1: it.x, y1: flagBottom + 2, x2: it.x, y2: axisY - 12, "class": "gtl-stem" }));
+          a.appendChild(svgEl("path", { d: "M " + (it.x - 6) + " " + (axisY - 12) + " L " + (it.x + 6) + " " + (axisY - 12) + " L " + it.x + " " + axisY + " Z", "class": "gtl-wedge" }));
+          a.appendChild(svgEl("text", { x: tx, y: flagBottom - 27, "class": "gtl-hash" }, it.hash));
+          a.appendChild(svgEl("text", { x: tx, y: flagBottom - 15, "class": "gtl-day" }, it.day));
+          a.appendChild(svgEl("text", { x: tx, y: flagBottom - 4, "class": "gtl-day" }, it.time + " JST"));
+          a.addEventListener("click", function () {
+            var card = document.getElementById(it.id);
+            if (!card) return;
+            card.classList.add("gtl-flash");
+            window.setTimeout(function () { card.classList.remove("gtl-flash"); }, 1800);
+          });
+          svg.appendChild(a);
+        });
+        y = axisY + 22;
+      });
+      svg.setAttribute("height", y);
+      svg.setAttribute("viewBox", "0 0 " + width + " " + y);
+      var wrap = $(".gtl-body", host);
+      wrap.textContent = "";
+      wrap.appendChild(svg);
+    }
+
+    host.textContent = "";
+    var head = document.createElement("h3");
+    head.className = "section-title";
+    head.textContent = "更新のタイムライン";
+    var note = document.createElement("p");
+    note.className = "muted gtl-note";
+    var more = document.createElement("button");
+    more.type = "button";
+    more.className = "pill-btn gtl-more";
+    function setNote() {
+      note.textContent = "1 行が 1 週間（月曜から日曜、JST）で、左から右へ時間が進み、上が古く下が新しい更新です。" +
+        "近い時刻の更新は段を分けて並べ、更新のない週は省いています。点を押すと、下のその更新へ移動します。" +
+        (items.length < all.length ? "（新しい " + items.length + " 件を表示中。全部で " + all.length + " 件）" : "（全 " + all.length + " 件）");
+      more.textContent = items.length < all.length ? "すべて表示（" + all.length + " 件）" : "新しい " + GTL_FIRST + " 件だけ表示";
+      more.hidden = all.length <= GTL_FIRST;
+    }
+    more.addEventListener("click", function () {
+      showAll = !showAll;
+      items = showAll ? all : all.slice(all.length - GTL_FIRST);
+      setNote();
+      draw();
+    });
+    var body = document.createElement("div");
+    body.className = "gtl-body";
+    setNote();
+    host.appendChild(head);
+    host.appendChild(note);
+    host.appendChild(more);
+    host.appendChild(body);
+    host.hidden = false;
+    draw();
+    window.addEventListener("resize", function () {
+      window.clearTimeout(TIMER);
+      TIMER = window.setTimeout(function () { if (Math.abs((host.clientWidth || MIN_W) - lastWidth) > 8) draw(); }, 150);
+    });
+  }
+
   function init() {
     // Controls need JavaScript, so they are hidden in the markup and revealed here.
     $$("[data-follow]").forEach(function (btn) {
@@ -330,6 +488,7 @@
     }
 
     initSearch();
+    initTimeline();
     showSharedBanner();
     apply();
   }

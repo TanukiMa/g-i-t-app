@@ -2,6 +2,11 @@
 
 GitHub only fires a "*/15" schedule a few times a day, so one run must not stop after a fixed handful of
 URLs: it keeps working until nothing is due any more or the time budget is used up.
+
+Two modes: with the S3 keys the Internet Archive allows a higher rate. When even that limit is reached (HTTP 429)
+the worker does not stop but switches to the unauthenticated mode and goes on slowly (ARCHIVE_ANON_INTERVAL_SEC),
+trying the keys again after ARCHIVE_AUTH_RETRY_MIN minutes. It stops on a 429 only when the unauthenticated
+mode is limited as well (or ARCHIVE_ANON_FALLBACK=0).
 """
 import os
 import sys
@@ -25,6 +30,10 @@ RUNTIME_MINUTES = float(os.environ.get("ARCHIVE_RUNTIME_MIN") or 14)  # stop sta
 MAX_ATTEMPTS = 5
 BACKOFF_MINUTES = 30      # doubled per failed attempt
 RATE_LIMIT_MINUTES = 15   # retry delay after HTTP 429
+# Unauthenticated fallback after the authenticated rate limit (0 = off: stop at the first 429 as before).
+ANON_FALLBACK = os.environ.get("ARCHIVE_ANON_FALLBACK", "1") != "0"
+ANON_INTERVAL_SEC = int(os.environ.get("ARCHIVE_ANON_INTERVAL_SEC") or 60)   # slower pace without keys
+AUTH_RETRY_MINUTES = float(os.environ.get("ARCHIVE_AUTH_RETRY_MIN") or 15)   # then try the keys again
 
 
 def now():
@@ -49,15 +58,22 @@ def update_row(supabase, row_id, **fields):
         print(f"Failed to update queue row {row_id}: {e}")
 
 
-def handle_row(supabase, row, capture) -> str:
-    """Try one URL. Returns done | retry | failed | rate_limited | unauthorized."""
+def handle_row(supabase, row, capture, authenticate: bool = True, allow_fallback: bool = False) -> str:
+    """Try one URL. Returns done | retry | failed | rate_limited | unauthorized | auth_limited.
+
+    auth_limited: the authenticated limit was hit and allow_fallback is set; the row is left untouched so the
+    caller can try it again without the keys.
+    """
     url, attempts = row["url"], row["attempts"] + 1
     try:
-        archive_url, _ = capture(url, authenticate=True)
-        print(f"Archived {url} -> {archive_url}")
+        archive_url, _ = capture(url, authenticate=authenticate)
+        print(f"Archived {url} -> {archive_url}" + ("" if authenticate else " (unauthenticated)"))
         update_row(supabase, row["id"], status="done", archive_url=archive_url, attempts=attempts, last_error=None)
         return "done"
     except TooManyRequests as e:
+        if authenticate and allow_fallback:
+            print(f"Rate limited with the S3 keys at {url}; switching to the unauthenticated mode.")
+            return "auth_limited"
         print(f"Rate limited at {url}; stopping this run.")
         update_row(supabase, row["id"], next_try_at=(now() + timedelta(minutes=RATE_LIMIT_MINUTES)).isoformat(),
                    last_error=describe(e))
@@ -82,27 +98,44 @@ def handle_row(supabase, row, capture) -> str:
 
 
 def drain(supabase, capture, sleep=time.sleep, monotonic=time.monotonic,
-          budget_sec: float = RUNTIME_MINUTES * 60, interval: float = INTERVAL_SEC, batch: int = BATCH_SIZE) -> dict:
+          budget_sec: float = RUNTIME_MINUTES * 60, interval: float = INTERVAL_SEC, batch: int = BATCH_SIZE,
+          anon_fallback: bool = ANON_FALLBACK, anon_interval: float = ANON_INTERVAL_SEC,
+          auth_retry_sec: float = AUTH_RETRY_MINUTES * 60) -> dict:
     """Work through due rows round after round. Returns counters (plus 'stopped': why it ended)."""
     start = monotonic()
-    counts = {"done": 0, "retry": 0, "failed": 0, "rate_limited": 0, "unauthorized": 0}
+    counts = {"done": 0, "retry": 0, "failed": 0, "rate_limited": 0, "unauthorized": 0,
+              "anonymous": 0, "switched": 0}   # anonymous: archived without the keys; switched: times the mode changed
     stopped = "queue empty"
     first = True
+    anonymous = False       # True while the keys are rate limited
+    auth_retry_at = 0.0     # monotonic time at which the keys are tried again
     while True:
         rows = due_rows(supabase, batch)
         if not rows:
             break
-        print(f"{len(rows)} due URL(s) in this round.")
+        print(f"{len(rows)} due URL(s) in this round" + (" (unauthenticated mode)." if anonymous else "."))
         halt = False
         for row in rows:
             if not first:
-                sleep(interval)
+                sleep(anon_interval if anonymous else interval)
             if monotonic() - start >= budget_sec:
                 stopped, halt = "time budget used up", True
                 break
             first = False
-            result = handle_row(supabase, row, capture)
+            if anonymous and monotonic() >= auth_retry_at:
+                anonymous = False
+                counts["switched"] += 1
+                print("Trying the S3 keys again.")
+            result = handle_row(supabase, row, capture, authenticate=not anonymous,
+                                allow_fallback=anon_fallback and not anonymous)
+            if result == "auth_limited":
+                anonymous = True
+                auth_retry_at = monotonic() + auth_retry_sec
+                counts["switched"] += 1
+                result = handle_row(supabase, row, capture, authenticate=False)   # the same URL, without the keys
             counts[result] += 1
+            if anonymous and result == "done":
+                counts["anonymous"] += 1
             if result in ("rate_limited", "unauthorized"):
                 stopped, halt = ("Internet Archive rate limit" if result == "rate_limited" else "credentials rejected"), True
                 break
@@ -126,11 +159,14 @@ def main():
     os.environ["SAVEPAGENOW_SECRET_KEY"] = ia_secret
 
     supabase = create_client(supa_url, supa_key)
-    print(f"Working for up to {RUNTIME_MINUTES:g} min (interval {INTERVAL_SEC}s, {BATCH_SIZE} per round).")
+    print(f"Working for up to {RUNTIME_MINUTES:g} min (interval {INTERVAL_SEC}s, {BATCH_SIZE} per round; "
+          + (f"without the keys after a rate limit: every {ANON_INTERVAL_SEC}s, keys retried after {AUTH_RETRY_MINUTES:g} min)."
+             if ANON_FALLBACK else "stops at the first rate limit)."))
     counts = drain(supabase, savepagenow.capture_or_cache)
     remaining = len(due_rows(supabase, 1000))
     print(f"Finished ({counts['stopped']}): archived={counts['done']} will-retry={counts['retry']} "
-          f"failed={counts['failed']} rate-limited={counts['rate_limited']}; still due now: {remaining}.")
+          f"failed={counts['failed']} rate-limited={counts['rate_limited']} "
+          f"unauthenticated={counts['anonymous']}; still due now: {remaining}.")
     if counts["unauthorized"]:
         sys.exit(1)
 
