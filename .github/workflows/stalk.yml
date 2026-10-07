@@ -12,7 +12,7 @@ concurrency:
 jobs:
   run-pipeline:
     runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v7
