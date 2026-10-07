@@ -112,11 +112,27 @@ RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "remove", "default_ign
 # Rules applied to EVERY site unless it sets `default_ignore: false`. WordPress (and many CMSs) append a
 # changing number to static files, e.g. file.pdf?1700000001 or logo.png?ver=6.4.2, which would otherwise be
 # reported as an update on every visit. Only a numeric / version value after a known file extension is
-# removed; other queries (page.php?id=5, file.pdf?download=1) are left alone.
+# removed (plus a value shaped like a time stamp, whatever the parameter is called); other queries
+# (page.php?id=5, file.pdf?download=1) are left alone.
 DEFAULT_IGNORE_RULES = [
     {
         "pattern": r"(\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|gif|webp|svg|ico|css|js))"
                    r"\?(?:(?:ver|v|t|ts|time|timestamp|rev|cb)=)?[0-9][0-9.]*",
+        "replace": "$1",
+    },
+    # The same for sites that name the parameter `var` (file.pdf?var=20261007123610). A separate rule instead of
+    # a longer name list above: sites provisioned earlier keep the original rule, and an edited one would be
+    # added next to it as a duplicate.
+    {
+        "pattern": r"(\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|gif|webp|svg|ico|css|js))\?var=[0-9][0-9.]*",
+        "replace": "$1",
+    },
+    # Any other parameter name whose value has the shape of a time stamp: 20YYMMDDhhmmss (14 digits), epoch
+    # seconds (10 digits) or epoch milliseconds (13 digits). Ids such as ?fileid=1234567890 or ?id=5 do not
+    # have that shape and are kept.
+    {
+        "pattern": r"(\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|gif|webp|svg|ico|css|js))"
+                   r"\?[A-Za-z_][A-Za-z0-9_-]*=(?:20[0-9]{12}|1[5-9][0-9]{8,11})[0-9]*",
         "replace": "$1",
     },
     # Expiring "NEW" badges (<span class="new">NEW</span>, <b>New!</b>, 新着): they vanish after a few days

@@ -90,10 +90,12 @@ WordPress などは、静的ファイルへのリンクに、アクセスのた�
 | `…/guide.pdf?1700000001` | `…/guide.pdf` |
 | `…/logo.png?ver=6.4.2` | `…/logo.png` |
 | `…/a.docx?t=1700000001` | `…/a.docx` |
-| `…/report.pdf?download=1`、`…/page.php?id=5` | **そのまま**（意味のあるクエリは消さない） |
+| `…/file.pdf?var=20261007123610` | `…/file.pdf` |
+| `…/a.pdf?fid=1700000001`、`…/b.docx?rnd=20261007123610` | `…/a.pdf`、`…/b.docx`（名前が何でも、値が「時刻の形」なら消す） |
+| `…/report.pdf?download=1`、`…/page.php?id=5`、`…/file.pdf?fileid=1234567890`、`…/page.php?var=20261007123610` | **そのまま**（意味のあるクエリや、静的ファイルでない URL は消さない） |
 
 - 対象の拡張子：`pdf` `doc(x)` `xls(x)` `ppt(x)` `zip` `png` `jpg/jpeg` `gif` `webp` `svg` `ico` `css` `js`
-- 対象のクエリ：数字・バージョン（`6.4.2`）だけ、または `ver` `v` `t` `ts` `time` `timestamp` `rev` `cb` の値が数字・バージョンのもの
+- 対象のクエリ：数字・バージョン（`6.4.2`）だけ、または `ver` `var` `v` `t` `ts` `time` `timestamp` `rev` `cb` の値が数字・バージョンのもの。さらに、**名前が何であっても、値が時刻の形のもの**（14 桁の日時 `20YYMMDDhhmmss`、10 桁のエポック秒、13 桁のエポックミリ秒）。エポック秒と同じ形の ID（例: `?id=1700000001`）は、巻き込まれるので、そのサイトは `default_ignore: false` で標準ルールを外す
 - 既存のサイトにも、次回の実行で追記されます。**追記した回の変化は「更新」として記録されません**（`Re-baseline <slug> after ignore rule change` というコミットで、基準を取り直すだけ）。
 - 効かせたくないサイトは、`default_ignore: false` を書きます。
 
