@@ -296,23 +296,41 @@ def attach_diff_pages(updates, public_dir: str):
             item["diff_file"] = name
 
 
-DIFF_NAV_MARK = "<!--git-nav-->"
-DIFF_NAV_STYLE = (
-    "<style>.git-nav{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;align-items:center;margin:0 0 .8rem;padding:.6rem 1rem;"
+DIFF_MARK = "<!--git-diff-v2-->"
+DIFF_STYLE = (
+    "<style>"
+    ".git-nav{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;align-items:center;margin:0;padding:.6rem 1rem;"
     "background:#f6f8fa;border-bottom:1px solid #d0d7de;font:14px/1.4 system-ui,sans-serif;text-align:left}"
-    ".git-nav a{color:#0969da;text-decoration:none}.git-nav a:hover{text-decoration:underline}"
+    ".git-head{max-width:70rem;margin:0 auto;padding:1rem 1rem .5rem;text-align:left;font:15px/1.7 system-ui,'Hiragino Sans','Yu Gothic',sans-serif;color:#1f2328}"
+    ".git-head h1{font-size:1.35rem;margin:.2rem 0 .6rem;color:inherit}"
+    ".git-head dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem;margin:0 0 .8rem}"
+    ".git-head dt{color:#656d76}.git-head dd{margin:0;overflow-wrap:anywhere}"
+    ".git-head details{margin:.5rem 0;padding:.5rem .9rem;border:1px solid #d0d7de;border-radius:8px}"
+    ".git-head summary{cursor:pointer;font-weight:600}"
+    ".git-head .how{color:#656d76;font-size:.9em;margin:.4rem 0 0}"
+    ".git-foot{max-width:70rem;margin:2rem auto 1.5rem;padding:0 1rem;text-align:center;font:13px/1.6 system-ui,sans-serif;color:#656d76}"
+    ".git-nav a,.git-head a,.git-foot a{color:#0969da;text-decoration:none}"
+    ".git-nav a:hover,.git-head a:hover,.git-foot a:hover{text-decoration:underline}"
     ".git-nav span{color:#656d76}"
-    "@media (prefers-color-scheme:dark){.git-nav{background:#161b22;border-color:#30363d}.git-nav a{color:#58a6ff}"
-    ".git-nav span{color:#8b949e}}</style>"
+    "@media (prefers-color-scheme:dark){.git-nav{background:#161b22;border-color:#30363d}"
+    ".git-head{color:#e6edf3}.git-head details{border-color:#30363d}"
+    ".git-head dt,.git-head .how,.git-nav span,.git-foot{color:#8b949e}"
+    ".git-nav a,.git-head a,.git-foot a{color:#58a6ff}}"
+    "</style>"
 )
+_DIFF_OLD_NAV = re.compile(r"<!--git-nav-->.*?</nav>", re.S)
 
 
-def add_diff_navigation(public_dir: str, names: dict) -> int:
-    """Put a link bar (back / site history / timeline) at the top of every diff page.
+def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
+    """Make every diff page understandable on its own.
 
-    diff2html writes a standalone page without any link back. Done here, for all existing diff pages, so
-    the pages written by older runs get it too; the marker keeps it idempotent. Returns the number of pages changed.
+    diff2html writes a standalone page headed "Diff to HTML by rtfpessoa". Here that heading is replaced by
+    what the visitor needs: which site and update this is, when, the monitored page, the commit and the AI
+    summary, plus how to read the two columns. A link bar leads back, and the credit moves to the footer.
+    Done for all existing diff pages (also those of earlier runs); the marker keeps it idempotent.
+    Returns the number of pages changed.
     """
+    by_key = {(u.get("site_slug"), str(u.get("commit_hash", ""))[:7]): u for u in updates}
     sites_root = os.path.join(public_dir, "sites")
     changed = 0
     for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
@@ -323,19 +341,47 @@ def add_diff_navigation(public_dir: str, names: dict) -> int:
             path = os.path.join(folder, name)
             with open(path, "r", encoding="utf-8") as f:
                 page = f.read()
-            if DIFF_NAV_MARK in page or not re.search(r"<body[^>]*>", page):
+            if DIFF_MARK in page or not re.search(r"<body[^>]*>", page):
                 continue
+            page = _DIFF_OLD_NAV.sub("", page)      # bar of the first version of this feature
+            hash7 = name[5:-5]
             site = html.escape(names.get(slug, slug))
-            nav = (f'{DIFF_NAV_MARK}<nav class="git-nav">'
-                   f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
-                   f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
-                   f'<a href="../../index.html">全体タイムライン</a>'
-                   f'<a href="../../sites.html">サイト一覧</a>'
-                   f'<span>差分 {html.escape(name[5:-5])}</span></nav>')
-            page = re.sub(r"<body[^>]*>", lambda m: m.group(0) + nav, page, count=1)
-            page = page.replace("</head>", DIFF_NAV_STYLE + "</head>", 1)
-            page = page.replace("<title>Diff to HTML by rtfpessoa</title>",
-                                f"<title>差分 {site} {html.escape(name[5:-5])} - G医t</title>", 1)
+            upd = by_key.get((slug, hash7))
+            when = html.escape(to_jst(upd["created_at"])) if upd else ""
+
+            rows = []
+            if when:
+                rows.append(f"<dt>更新日時</dt><dd>{when}</dd>")
+            if upd and upd.get("url"):
+                url = html.escape(upd["url"], quote=True)
+                rows.append(f'<dt>確認先のページ</dt><dd><a href="{url}" target="_blank" rel="noopener noreferrer">{url}</a></dd>')
+            if upd and upd.get("commit_hash"):
+                commit = html.escape(str(upd["commit_hash"]), quote=True)
+                rows.append(f'<dt>記録</dt><dd><a href="{DATA_REPO_URL}/commit/{commit}" target="_blank" '
+                            f'rel="noopener noreferrer">コミット {commit[:7]}</a></dd>')
+            summary = ""
+            text = (upd or {}).get("summary") or ""
+            if text and text not in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
+                summary = (f'<details open><summary>AI による要約</summary>{render_markdown(text)}'
+                           '<p class="how">AI の要約は誤りを含むことがあります。下の差分、または確認先のページで確かめてください。</p></details>')
+            head = (f'{DIFF_MARK}<nav class="git-nav">'
+                    f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
+                    f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
+                    f'<a href="../../index.html">全体タイムライン</a>'
+                    f'<a href="../../sites.html">サイト一覧</a></nav>'
+                    f'<header class="git-head"><h1>{site} の更新差分</h1>'
+                    f'<dl>{"".join(rows)}</dl>{summary}'
+                    f'<p class="how">ページのテキストの、前回の確認との違いです。左が変更前、右が変更後で、'
+                    f'<strong>緑</strong>が追加、<strong>赤</strong>が削除された部分です。</p></header>')
+            foot = ('<footer class="git-foot"><p>G医t が記録した差分です。'
+                    f'<a href="../../about.html">G医tについて</a> ・ <a href="../../index.html">全体タイムライン</a></p>'
+                    '<p>差分の表示: Diff to HTML by <a href="https://github.com/rtfpessoa">rtfpessoa</a>（diff2html）</p></footer>')
+
+            page = re.sub(r"<h1>Diff to HTML by .*?</h1>", "", page, count=1, flags=re.S)
+            page = re.sub(r"<body[^>]*>", lambda m: m.group(0) + head, page, count=1)
+            page = page.replace("</body>", foot + "</body>", 1)
+            page = page.replace("</head>", DIFF_STYLE + "</head>", 1)
+            page = re.sub(r"<title>.*?</title>", lambda m: f"<title>差分 {site} {when or hash7} - G医t</title>", page, count=1, flags=re.S)
             with open(path, "w", encoding="utf-8", newline="") as f:
                 f.write(page)
             changed += 1
@@ -476,7 +522,7 @@ def main():
     env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
                        analytics=analytics_settings())
 
-    print(f"Added navigation to {add_diff_navigation(public_dir, names)} diff page(s).")
+    print(f"Decorated {decorate_diff_pages(public_dir, names, updates)} diff page(s).")
 
     generated = to_jst(datetime.now(timezone.utc))
     build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
