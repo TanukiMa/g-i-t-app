@@ -28,6 +28,25 @@ pwsh .\scripts\install-config-hook.ps1                         # commit のた�
 - フックは `g-i-t-data` の `.git/hooks` に入ります（clone し直したら、もう一度）。外すときは `-Uninstall`。
 - それでも壊れた設定が push されたときは、実行は、**直前に読めた版の `config.yaml` で続き**、ログに行と原因を出して、最後に失敗として終わります。直して push してください。
 
+## 記録された更新を消す（ダッシュボードから）
+
+誤検知の更新（並び順だけ、広告の入れ替え、時刻の数字など）を、あとから、ダッシュボードの記録から消します。**消すのは Supabase の行（`updates`、`archive_queue`）と、差分ページのファイルです。git の履歴（commit）は、消しません**（commit は、次の差分の土台で、`git revert` で打ち消すと、保存ページが、サイトの今の内容と食い違い、同じ変化が、また更新として出ます）。
+
+```powershell
+cd g-i-t-app
+# 1) 要約が「内容に実質的な変更はありません」の更新を、まとめて
+pwsh .\scripts\purge-noop-updates.ps1 -CountOnly -DataDir ..\g-i-t-data     # 件数と対象を見る
+pwsh .\scripts\purge-noop-updates.ps1 -DataDir ..\g-i-t-data                # yes で削除
+# 2) commit を指定して（要約が何でも）。1 つの文字列にして、引用符で囲む
+pwsh .\scripts\purge-noop-updates.ps1 -Commit 'ee536d4,7ac47c5' -DataDir ..\g-i-t-data
+# 3) 差分に、ある文字列を含む commit を、git で探して（日本語は pwsh 7 で）
+pwsh .\scripts\purge-noop-updates.ps1 -Contains '?var=' -Site anesth -CountOnly -DataDir ..\g-i-t-data
+```
+- 必ず、先に `-CountOnly` で、対象を確かめます。`yes` と入力するまで、何も消しません。
+- `-Contains` の既定は、`-Kind noop`（AI が「実質的な変更なし」と要約したものだけ）です。最初の取り込み（`[initial]`）や、その文字列を含む本物の更新（`[other]`）は、既定では、巻き込みません（広げるときは `-Kind any`）。保存されているのは、整形後のページ（`class` などは無い）なので、探す文字列は、ページに見える文字列にします。
+- 差分ページは、作業ツリーから消すだけです。表示される `git add -A public` / `commit` / `push` を、あとで実行します。
+- 削除のあと、ダッシュボードは、次の実行で、Supabase から作り直されます。
+
 ## 手動で実行する
 ```powershell
 gh workflow run stalk.yml   --repo TanukiMa/g-i-t-app   # 本処理（取得 → 公開）
