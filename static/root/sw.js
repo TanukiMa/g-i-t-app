@@ -12,10 +12,12 @@ const PAGE_CACHE = "git-pages-v2";            // offline copies of pages the rea
 const PAGE_LIMIT = 60;                        // most recent pages kept
 const WAIT_FOR_NETWORK_MS = 4000;             // with a copy available, fall back to it after this long
 
+const ASSET_VERSION = "__ASSET_VERSION__";   // the pages ask for assets/xxx?v=<this>: same URL, same cache entry
 const SHELL = [
   "offline.html",
-  "assets/github.css", "assets/dashboard.css", "assets/minimal.css", "assets/common.css",
-  "assets/app.js", "assets/pwa.js",
+  "assets/github.css?v=" + ASSET_VERSION, "assets/dashboard.css?v=" + ASSET_VERSION,
+  "assets/minimal.css?v=" + ASSET_VERSION, "assets/common.css?v=" + ASSET_VERSION,
+  "assets/app.js?v=" + ASSET_VERSION, "assets/pwa.js?v=" + ASSET_VERSION,
   "assets/icons/icon-192.png",
 ];
 const PRECACHE_PAGES = [""];   // "" = the scope itself (the timeline)

@@ -504,7 +504,20 @@ def write(path: str, content: str):
     print(f"Generated {path}")
 
 
-def publish_root_files(src_dir: str, public_dir: str, build_id: str):
+def asset_version(static_dir: str) -> str:
+    """Short hash of the CSS/JS/icons (not of the build time): the URL of an asset changes only when the asset does."""
+    digest = hashlib.sha1()
+    for folder, dirs, files in os.walk(static_dir):
+        dirs[:] = sorted(d for d in dirs if d != "root")
+        for name in sorted(files):
+            path = os.path.join(folder, name)
+            digest.update(os.path.relpath(path, static_dir).replace(os.sep, "/").encode("utf-8"))
+            with open(path, "rb") as f:
+                digest.update(f.read())
+    return digest.hexdigest()[:10]
+
+
+def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: str = ""):
     """Copy manifest.webmanifest / sw.js to the site root (a service worker only controls its own directory)."""
     if not os.path.isdir(src_dir):
         return
@@ -513,7 +526,7 @@ def publish_root_files(src_dir: str, public_dir: str, build_id: str):
         if not os.path.isfile(path):
             continue
         with open(path, "r", encoding="utf-8") as f:
-            text = f.read().replace("__BUILD_ID__", build_id)
+            text = f.read().replace("__BUILD_ID__", build_id).replace("__ASSET_VERSION__", version)
         write(os.path.join(public_dir, name), text)
 
 
@@ -555,6 +568,7 @@ def main():
 
     print(f"Decorated {decorate_diff_pages(public_dir, names, updates)} diff page(s).")
 
+    env.globals["asset_version"] = asset_version(static_dir) if os.path.isdir(static_dir) else ""
     generated = to_jst(datetime.now(timezone.utc))
     build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
     tags = build_tag_infos(sites)
@@ -570,7 +584,7 @@ def main():
     if os.path.isdir(static_dir):
         shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("root"))
-        publish_root_files(os.path.join(static_dir, "root"), public_dir, build_id)
+        publish_root_files(os.path.join(static_dir, "root"), public_dir, build_id, env.globals["asset_version"])
     write(os.path.join(public_dir, "offline.html"), env.get_template("offline.html").render())
 
     # Three views of the latest part of the timeline (GitHub-style / dashboard / minimal)

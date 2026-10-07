@@ -312,7 +312,7 @@
     var host = $("#gtl");
     if (!host) return;
     var cards = $$("#content .entry[data-commit]");
-    if (cards.length < 2) return;                       // a single point is no timeline
+    if (cards.length < 1) return;
     var DAY = 86400000, WEEK = 7 * DAY;
     var DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     function pad2(n) { return (n < 10 ? "0" : "") + n; }
@@ -330,7 +330,7 @@
                    text: c.getAttribute("data-excerpt") || "", initial: c.classList.contains("entry--initial"),
                    ms: ms, week: dayStart - sinceMonday * DAY, order: order });
     });
-    if (items.length < 2) return;
+    if (items.length < 1) return;
     items.sort(function (a, b) { return a.ms - b.ms || b.order - a.order; });   // oldest first (cards are newest first)
     var all = items;
     var showAll = all.length <= GTL_FIRST;

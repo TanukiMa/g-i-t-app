@@ -4,8 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{{ page_title }}</title>
-<link rel="stylesheet" href="{{ root }}assets/{{ style|default('github') }}.css" />
-<link rel="stylesheet" href="{{ root }}assets/common.css" />
+<link rel="stylesheet" href="{{ root }}assets/{{ style|default('github') }}.css?v={{ asset_version }}" />
+<link rel="stylesheet" href="{{ root }}assets/common.css?v={{ asset_version }}" />
 <link rel="alternate" type="application/atom+xml" title="G医t 更新情報（すべて）" href="{{ root }}feeds/all.xml" />
 <link rel="manifest" href="{{ root }}manifest.webmanifest" />
 <link rel="apple-touch-icon" href="{{ root }}assets/icons/apple-touch-icon.png" />
@@ -14,9 +14,9 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="G医t" />
 {% block head_extra %}{% endblock %}
-<script src="{{ root }}assets/app.js" defer data-root="{{ root }}"></script>
-<script src="{{ root }}assets/pwa.js" defer data-root="{{ root }}"></script>
-{% if analytics.enabled %}<script src="{{ root }}assets/analytics.js" defer data-ga="{{ analytics.ga_id }}" data-cf="{{ analytics.cf_token }}"></script>{% endif %}
+<script src="{{ root }}assets/app.js?v={{ asset_version }}" defer data-root="{{ root }}"></script>
+<script src="{{ root }}assets/pwa.js?v={{ asset_version }}" defer data-root="{{ root }}"></script>
+{% if analytics.enabled %}<script src="{{ root }}assets/analytics.js?v={{ asset_version }}" defer data-ga="{{ analytics.ga_id }}" data-cf="{{ analytics.cf_token }}"></script>{% endif %}
 </head>
 <body class="style-{{ style|default('github') }}">
 <main>
