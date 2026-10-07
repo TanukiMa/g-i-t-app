@@ -107,7 +107,7 @@ def run_cmd(cmd, cwd=None):
 
 
 # G-I-T metadata in config.yaml; website-stalker rejects unknown keys, so these are never written out.
-RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "default_ignore")
+RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "remove", "default_ignore")
 
 # Rules applied to EVERY site unless it sets `default_ignore: false`. WordPress (and many CMSs) append a
 # changing number to static files, e.g. file.pdf?1700000001 or logo.png?ver=6.4.2, which would otherwise be
@@ -169,13 +169,40 @@ def rules_to_editors(rules, slug: str = "") -> list:
     return editors
 
 
-def _rule_list(value, where: str) -> list:
+def _rule_list(value, where: str, key: str = "ignore") -> list:
     if not value:
         return []
     if not isinstance(value, list):
-        print(f"WARNING: {where}: `ignore` must be a list; ignored.")
+        print(f"WARNING: {where}: `{key}` must be a list; ignored.")
         return []
     return value
+
+
+def remove_editors(selectors, slug: str = "") -> list:
+    """`css_remove` editors for CSS selectors: whole elements (rotating banners, widgets ...) are dropped from the page.
+
+    One editor per selector, so adding a selector later never changes the ones already written. They run in the
+    DOM stage, before html_sanitize, so class names and ids can still be used. Invalid selectors are skipped with a
+    warning (the check uses soupsieve when it is installed).
+    """
+    try:
+        import soupsieve
+    except ImportError:
+        soupsieve = None
+    editors = []
+    for sel in selectors:
+        if not isinstance(sel, str) or not sel.strip():
+            print(f"WARNING: {slug}: unsupported remove selector {sel!r}; skipped.")
+            continue
+        sel = sel.strip()
+        if soupsieve is not None:
+            try:
+                soupsieve.compile(sel)
+            except Exception as e:
+                print(f"WARNING: {slug}: invalid CSS selector {sel!r} ({e}); skipped.")
+                continue
+        editors.append({"css_remove": sel})
+    return editors
 
 
 def ignore_editors(target, slug: str = "") -> list:
@@ -194,11 +221,24 @@ def load_global_ignore(data_dir: str) -> list:
     return _rule_list(config.get("ignore") if isinstance(config, dict) else None, "config.yaml")
 
 
-def all_ignore_editors(target, slug: str = "", global_rules=None) -> list:
-    """Built-in rules (unless `default_ignore: false`), then config.yaml's global rules, then the site's own."""
+def load_global_remove(data_dir: str) -> list:
+    """Top-level `remove:` of config.yaml: CSS selectors removed from every site."""
+    path = os.path.join(data_dir, "config.yaml")
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    return _rule_list(config.get("remove") if isinstance(config, dict) else None, "config.yaml", "remove")
+
+
+def all_ignore_editors(target, slug: str = "", global_rules=None, global_remove=None) -> list:
+    """Built-in rules (unless `default_ignore: false`), config.yaml's global rules, the site's own `ignore`,
+    then the `remove` selectors (global, then the site's own)."""
     use_defaults = not (isinstance(target, dict) and target.get("default_ignore") is False)
     rules = (DEFAULT_IGNORE_RULES if use_defaults else []) + list(global_rules or [])
-    return rules_to_editors(rules, slug) + ignore_editors(target, slug)
+    own_remove = _rule_list(target.get("remove") if isinstance(target, dict) else None, slug, "remove")
+    return (rules_to_editors(rules, slug) + ignore_editors(target, slug)
+            + remove_editors(list(global_remove or []) + own_remove, slug))
 
 
 def merge_editors(editors: list, extra: list) -> list:
@@ -245,7 +285,7 @@ def sync_ignore_rules(data_dir: str, slug: str, config_path: str, wanted: list, 
     return True
 
 
-def provision_site(data_dir: str, target, global_rules=None, changed=None) -> str:
+def provision_site(data_dir: str, target, global_rules=None, changed=None, global_remove=None) -> str:
     url = target.get("url") if isinstance(target, dict) else str(target)
     if not url:
         return ""
@@ -256,7 +296,7 @@ def provision_site(data_dir: str, target, global_rules=None, changed=None) -> st
         return ""
     site_dir = os.path.join(data_dir, "sites", slug)
     config_path = os.path.join(site_dir, "website-stalker.yaml")
-    ignores = all_ignore_editors(target, slug, global_rules)
+    ignores = all_ignore_editors(target, slug, global_rules, global_remove)
 
     if os.path.exists(config_path):
         print(f"Site '{slug}' already provisioned.")
@@ -286,13 +326,14 @@ def provision_all(data_dir: str) -> dict:
     """
     targets = parse_stalker_yaml(data_dir)
     global_rules = load_global_ignore(data_dir)
+    global_remove = load_global_remove(data_dir)
     print(f"Found {len(targets)} targets in master config.yaml.")
     new, changed = [], []
     for target in targets:
         try:
             slug = target_slug(target)
             existed = bool(slug) and os.path.exists(os.path.join(data_dir, "sites", slug, "website-stalker.yaml"))
-            provision_site(data_dir, target, global_rules, changed)
+            provision_site(data_dir, target, global_rules, changed, global_remove)
             if slug and not existed and os.path.exists(os.path.join(data_dir, "sites", slug, "website-stalker.yaml")):
                 new.append(slug)
         except Exception as e:

@@ -23,10 +23,11 @@ sites:
 | `slug` | | ID。**`[a-z0-9][a-z0-9_-]*` のみ**（ASCII の小文字・数字・`-`・`_`）。ディレクトリ名と URL になる。省略すると URL から自動生成する。違反するとそのサイトは作られず、ログに警告が出る |
 | `tags` | | 分類のリスト（文字列、`\|` は不可）。絞り込みと、分類別の Atom フィードに使う |
 | `ignore` | | 取得したページから消す（毎回変わる）文字列の正規表現のリスト |
+| `remove` | | ページから**要素ごと**消す、CSS セレクターのリスト（入れ替わるバナー・広告欄など）。下の「remove」を参照 |
 | `default_ignore` | | `false` にすると、**標準の除去ルール**（下記）をこのサイトに適用しない |
 | その他 | | `website-stalker.yaml` のサイト項目（`editors`、`headers` など）は、そのまま渡される |
 
-`name` / `slug` / `tags` / `ignore` / `default_ignore` は G医t 独自の項目で、`website-stalker.yaml` には**書き出されません**（website-stalker は未知のキーを拒否するため）。
+`name` / `slug` / `tags` / `ignore` / `remove` / `default_ignore` は G医t 独自の項目で、`website-stalker.yaml` には**書き出されません**（website-stalker は未知のキーを拒否するため）。
 
 ## 標準の取得設定
 
@@ -62,6 +63,23 @@ sites:
 - YAML では**シングルクォート**で囲むと、`\` をそのまま書けます。
 - **既存サイトに追加した場合**は、次回の実行時に `sites/<slug>/website-stalker.yaml` へ追記されます（`Update ignore rules for <slug>` というコミット）。他の部分は変わりません。その回だけ、保存済みの内容との差で、1回の「更新」が記録されます。
 - `config.yaml` から消しても、`website-stalker.yaml` からは自動では消えません。外すときは、手でそのファイルを編集するか、[リセット](Operations)してください。
+
+## remove（入れ替わる要素を、要素ごと消す）
+
+アクセスのたびに入れ替わる広告バナーや、おすすめ欄のように、**ブロック全体**が変わるものは、`remove` に CSS セレクターを書いて、要素ごと消します。
+
+```yaml
+  - url: https://gemmed.ghc-j.com/
+    slug: "gemmed"
+    remove:
+      - ".header-banner"        # ヘッダーのバナー（毎回入れ替わる）
+```
+
+- 1 つのセレクターが、`website-stalker.yaml` の 1 つの `css_remove` エディタになります（`html_sanitize` の前に入るので、`class` や `id` が使えます）。
+- 全サイト共通にするには、`config.yaml` のトップレベルに `remove:` を書きます（`ignore:` と同じ）。
+- 書き方が正しくないセレクター（例: `div[`）は、警告を出して、そのセレクターだけを飛ばします。
+- 既存のサイトにも、次回の実行で追記されます（`ignore` と同じ。基準の取り直しは「更新」にならず、`Re-baseline` になります）。`config.yaml` から消しても、`website-stalker.yaml` からは自動では消えません。
+- セレクターで書けないときは、`ignore` の正規表現でも同じことができます（例: `'(?s)<div class="header-banner">.*?</div>'`。ただし、中に `<div>` が入る作りだと、途中までしか消えません）。
 
 ### 標準の除去ルール（全サイトに自動で適用）
 
