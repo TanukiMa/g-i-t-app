@@ -7,6 +7,7 @@ import argparse
 from urllib.parse import urljoin, urlparse
 import requests
 import yaml
+import check_config
 import provision
 from bs4 import BeautifulSoup
 from common import SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE
@@ -373,6 +374,14 @@ def main():
         print("website-stalker is not installed or not on PATH.")
         sys.exit(1)
 
+    # Step 0: is config.yaml sound? Findings are printed; when the file cannot be read at all, provisioning and the
+    # dashboard go on with the last readable committed version (provision.read_config) and the run fails at the end.
+    config_errors = []
+    try:
+        config_errors, _ = check_config.report(args.data_dir)
+    except Exception as e:
+        print(f"config.yaml check skipped: {e}")
+
     # Step 1: Run Provisioning (local only: creates sites/<slug>/website-stalker.yaml)
     print("=== Step 1: JIT Auto-Provisioning ===")
     try:
@@ -417,7 +426,9 @@ def main():
     print("=== Step 5: Build Static Dashboard ===")
     build_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_dashboard.py")
     build = subprocess.run([sys.executable, build_script, "--data-dir", args.data_dir])
-    sys.exit(0 if build.returncode == 0 and pushed else 1)
+    if config_errors or provision.config_problems():
+        print("config.yaml has errors (see above): the run is reported as failed so that it gets fixed.")
+    sys.exit(0 if build.returncode == 0 and pushed and not config_errors and not provision.config_problems() else 1)
 
 
 if __name__ == "__main__":

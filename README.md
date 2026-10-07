@@ -10,7 +10,7 @@
 
 1. **JIT Auto-Provisioning (`scripts/provision.py`)**
 
-`g-i-t-data/config.yaml` を読み込み、未登録の監視対象URLがあれば `sites/<slug>/website-stalker.yaml` を自動作成し、git repositoryにcommitする。
+`g-i-t-data/config.yaml` を（先に `scripts/check_config.py` で検査してから）読み込み、未登録の監視対象URLがあれば `sites/<slug>/website-stalker.yaml` を自動作成し、git repositoryにcommitする。
 
 2. **Web Stalking Pipeline (`scripts/website_stalk.py`)**
 

@@ -15,6 +15,19 @@
 
 追加したサイトの最初の実行は「初回取得」になり、AI要約は付きません。2回目以降から、変化が要約されます。
 
+## 設定ファイルを検査する（commit の前）
+
+`config.yaml` の書き間違い（全角の引用符、スラッグの規則違反・重複、使えない正規表現、不正な CSS セレクターなど）は、実行してから気づくと、新しいサイトの追加や、ダッシュボードの作成が、止まります。commit する前に検査してください。
+
+```powershell
+cd g-i-t-app
+python scripts\check_config.py --data-dir ..\g-i-t-data        # 作業ツリーの config.yaml
+pwsh .\scripts\install-config-hook.ps1                         # commit のたびに、自動で検査する（pre-commit フック）
+```
+- エラーは commit を止め、警告（綴りの間違いらしいキー、同じ URL の重複など）は表示だけです。1 回だけ飛ばすときは `git commit --no-verify`。
+- フックは `g-i-t-data` の `.git/hooks` に入ります（clone し直したら、もう一度）。外すときは `-Uninstall`。
+- それでも壊れた設定が push されたときは、実行は、**直前に読めた版の `config.yaml` で続き**、ログに行と原因を出して、最後に失敗として終わります。直して push してください。
+
 ## 手動で実行する
 ```powershell
 gh workflow run stalk.yml   --repo TanukiMa/g-i-t-app   # 本処理（取得 → 公開）
@@ -54,6 +67,7 @@ supabase db query --linked "select table_name from information_schema.tables whe
 | 毎回、リンクなどの同じ種類の差分が出る | セッションIDなど。`ignore` で消す（[設定リファレンス](Configuration)）。WordPress の `file.pdf?数値` 形式は標準ルールで自動的に消える |
 | `PGRST205: Could not find the table` | Supabase の URL / KEY が別プロジェクトのもの、またはスキーマ未適用。`SUPABASE_URL` / `SUPABASE_KEY` を設定し直し、`sql/schema.sql` を適用する |
 | `website-stalker` が `from ... is invalid` | `WEBSITE_STALKER_FROM` が未設定、または `@` と `.` を含まない |
+| `config.yaml cannot be read (line N, column M)` | `config.yaml` の YAML が壊れている（全角の引用符 `”` など）。上の「設定ファイルを検査する」で行を確認して直す。直るまでは、前回読めた版で動く |
 | `WARNING: skipping ...: slug ...` | `slug` が `[a-z0-9][a-z0-9_-]*` ではない。直す |
 | `Node.js 20 is deprecated` の警告 | 古いアクションのバージョン。`actions/*` を最新のメジャーに上げる |
 | 700MB 超の警告（ログの `.git size`） | サイズが大きい。変化の多いサイトに `css_select` / `css_remove` / `ignore` を足してノイズを減らす |

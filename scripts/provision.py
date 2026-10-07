@@ -50,14 +50,74 @@ def generate_slug(url: str) -> str:
     return slug
 
 
-def parse_stalker_yaml(data_dir: str):
-    master_yaml_path = os.path.join(data_dir, "config.yaml")
-    if not os.path.exists(master_yaml_path):
-        print(f"Error: {master_yaml_path} does not exist.")
-        return []
+# Problems with config.yaml found in this process (the run goes on with the last readable version; callers turn
+# this into a failing exit status at the end).
+_CONFIG_PROBLEMS = []
+_CONFIG_CACHE = {}
 
-    with open(master_yaml_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+
+def config_problems() -> list:
+    return list(_CONFIG_PROBLEMS)
+
+
+def _last_readable_config(data_dir: str):
+    """The newest committed config.yaml that can be read (git history of the data repository), with its short hash."""
+    try:
+        log = subprocess.run(["git", "-C", data_dir, "log", "--format=%H", "-n", "30", "--", "config.yaml"],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace")
+        for commit in log.stdout.split():
+            shown = subprocess.run(["git", "-C", data_dir, "show", f"{commit}:config.yaml"],
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if shown.returncode != 0:
+                continue
+            try:
+                config = yaml.safe_load(shown.stdout)
+            except yaml.YAMLError:
+                continue
+            if isinstance(config, (dict, list)) and config:
+                return config, commit[:7]
+    except OSError:
+        pass
+    return None, ""
+
+
+def read_config(data_dir: str):
+    """config.yaml as parsed YAML. When the file cannot be read, say exactly where, and go on with the newest
+    committed version that can be read, so one typo does not stop provisioning, the checks and the dashboard."""
+    path = os.path.join(data_dir, "config.yaml")
+    if not os.path.exists(path):
+        print(f"Error: {path} does not exist.")
+        return {}
+    stamp = (os.path.getmtime(path), os.path.getsize(path))
+    cached = _CONFIG_CACHE.get(path)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    with open(path, "r", encoding="utf-8-sig") as f:
+        text = f.read()
+    try:
+        config = yaml.safe_load(text) or {}
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        where = f"line {mark.line + 1}, column {mark.column + 1}" if mark else "an unknown position"
+        message = f"config.yaml cannot be read ({where}): {getattr(e, 'problem', None) or e}"
+        _CONFIG_PROBLEMS.append(message)
+        print(f"ERROR: {message}")
+        typo = [i for i, line in enumerate(text.splitlines(), 1) if any(c in line for c in "\u201c\u201d\u2018\u2019")]
+        if typo:
+            print("       typographic quotes on line(s) " + ", ".join(map(str, typo[:10])) +
+                  ": they do not close a YAML string; use the plain \" or '.")
+        config, commit = _last_readable_config(data_dir)
+        if config is None:
+            print("       no readable earlier version in the git history; continuing without sites from config.yaml.")
+            config = {}
+        else:
+            print(f"       continuing with the last readable version (commit {commit}); fix config.yaml and push.")
+    _CONFIG_CACHE[path] = (stamp, config)
+    return config
+
+
+def parse_stalker_yaml(data_dir: str):
+    config = read_config(data_dir)
 
     targets = []
     # Support various website-stalker yaml formats (list of targets or sites)
@@ -229,21 +289,13 @@ def ignore_editors(target, slug: str = "") -> list:
 
 def load_global_ignore(data_dir: str) -> list:
     """Top-level `ignore:` of config.yaml: rules for every site."""
-    path = os.path.join(data_dir, "config.yaml")
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+    config = read_config(data_dir)
     return _rule_list(config.get("ignore") if isinstance(config, dict) else None, "config.yaml")
 
 
 def load_global_remove(data_dir: str) -> list:
     """Top-level `remove:` of config.yaml: CSS selectors removed from every site."""
-    path = os.path.join(data_dir, "config.yaml")
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+    config = read_config(data_dir)
     return _rule_list(config.get("remove") if isinstance(config, dict) else None, "config.yaml", "remove")
 
 

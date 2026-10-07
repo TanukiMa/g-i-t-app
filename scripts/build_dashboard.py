@@ -15,7 +15,7 @@ from markupsafe import Markup
 
 from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, SUMMARY_FAILED,
                     SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT, LEGACY_SUMMARY_INITIAL)
-from provision import configured_sites
+from provision import config_problems, configured_sites
 
 try:
     from supabase import create_client, Client
@@ -646,6 +646,9 @@ def main():
               build_atom(f"G医t 分類: {tag['name']}", tag["feed"], "sites.html", tagged[:FEED_LIMIT_SITE], names, base_url))
 
     if not commit_and_push_parent(args.data_dir):
+        sys.exit(1)
+    if config_problems():
+        print("config.yaml could not be read; the dashboard was built from the last readable version. Failing the run so that it gets fixed.")
         sys.exit(1)
 
 
