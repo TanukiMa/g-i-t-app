@@ -144,7 +144,7 @@ gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
 gcloud monitoring dashboards create --config-from-file=monitoring/hosting-dashboard.json
 
 # 通知先（メール）
-gcloud beta monitoring channels create --display-name="G医t" --type=email \
+gcloud beta monitoring channels create --display-name="G醫t" --type=email \
   --channel-labels=email_address=<あなたのメールアドレス>
 gcloud beta monitoring channels list --format='value(name)'     # projects/.../notificationChannels/NNN
 

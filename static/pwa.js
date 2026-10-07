@@ -1,4 +1,4 @@
-/* G医t: progressive web app glue. Registers the service worker and offers "install as an app".
+/* G醫t: progressive web app glue. Registers the service worker and offers "install as an app".
  * Pages work the same without any of this. */
 (function () {
   "use strict";

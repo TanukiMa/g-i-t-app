@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  docs/system.d2 (G医t を1枚で説明する図) を static/system.svg に描画する。
+  docs/system.d2 (G醫t を1枚で説明する図) を static/system.svg に描画する。
 
 .DESCRIPTION
   ライト/ダークの両テーマを1つの SVG に埋め込む (ブラウザの設定に自動で追従)。

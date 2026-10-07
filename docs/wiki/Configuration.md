@@ -27,7 +27,7 @@ sites:
 | `default_ignore` | | `false` にすると、**標準の除去ルール**（下記）をこのサイトに適用しない |
 | その他 | | `website-stalker.yaml` のサイト項目（`editors`、`headers` など）は、そのまま渡される |
 
-`name` / `slug` / `tags` / `ignore` / `remove` / `default_ignore` は G医t 独自の項目で、`website-stalker.yaml` には**書き出されません**（website-stalker は未知のキーを拒否するため）。
+`name` / `slug` / `tags` / `ignore` / `remove` / `default_ignore` は G醫t 独自の項目で、`website-stalker.yaml` には**書き出されません**（website-stalker は未知のキーを拒否するため）。
 
 ## 標準の取得設定
 

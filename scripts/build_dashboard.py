@@ -271,7 +271,7 @@ def build_atom(title: str, feed_path: str, page_path: str, entries: list, names:
     ET.SubElement(feed, _atom("updated")).text = updated.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     ET.SubElement(feed, _atom("link"), rel="self", type="application/atom+xml", href=base + feed_path)
     ET.SubElement(feed, _atom("link"), rel="alternate", type="text/html", href=base + page_path)
-    ET.SubElement(ET.SubElement(feed, _atom("author")), _atom("name")).text = "G医t"
+    ET.SubElement(ET.SubElement(feed, _atom("author")), _atom("name")).text = "G醫t"
 
     for u, stamp in zip(entries, stamps):
         slug = u.get("site_slug", "")
@@ -393,15 +393,15 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
                     f'<dl>{"".join(rows)}</dl>{summary}'
                     f'<p class="how">ページのテキストの、前回の確認との違いです。左が変更前、右が変更後で、'
                     f'<strong>緑</strong>が追加、<strong>赤</strong>が削除された部分です。</p></header>')
-            foot = ('<footer class="git-foot"><p>G医t が記録した差分です。'
-                    f'<a href="../../about.html">G医tについて</a> ・ <a href="../../">全体タイムライン</a></p>'
+            foot = ('<footer class="git-foot"><p>G醫t が記録した差分です。'
+                    f'<a href="../../about.html">G醫tについて</a> ・ <a href="../../">全体タイムライン</a></p>'
                     '<p>差分の表示: Diff to HTML by <a href="https://github.com/rtfpessoa">rtfpessoa</a>（diff2html）</p></footer>')
 
             page = re.sub(r"<h1>Diff to HTML by .*?</h1>", "", page, count=1, flags=re.S)
             page = re.sub(r"<body[^>]*>", lambda m: m.group(0) + head, page, count=1)
             page = page.replace("</body>", foot + "</body>", 1)
             page = page.replace("</head>", DIFF_STYLE + "</head>", 1)
-            page = re.sub(r"<title>.*?</title>", lambda m: f"<title>差分 {site} {when or hash7} - G医t</title>", page, count=1, flags=re.S)
+            page = re.sub(r"<title>.*?</title>", lambda m: f"<title>差分 {site} {when or hash7} - G醫t</title>", page, count=1, flags=re.S)
             with open(path, "w", encoding="utf-8", newline="") as f:
                 f.write(page)
             changed += 1
@@ -635,15 +635,15 @@ def main():
 
     # Atom feeds: all sites, per site, per tag
     write(os.path.join(public_dir, "feeds", "all.xml"),
-          build_atom("G医t 更新情報（すべて）", "feeds/all.xml", "", updates[:FEED_LIMIT_ALL], names, base_url))
+          build_atom("G醫t 更新情報（すべて）", "feeds/all.xml", "", updates[:FEED_LIMIT_ALL], names, base_url))
     for site in sites:
         write(os.path.join(public_dir, "feeds", f"{site['slug']}.xml"),
-              build_atom(f"G医t {site['name']}", site["feed"], f"sites/{site['slug']}/{SITE_PAGE}",
+              build_atom(f"G醫t {site['name']}", site["feed"], f"sites/{site['slug']}/{SITE_PAGE}",
                          site["updates"][:FEED_LIMIT_SITE], names, base_url))
     for tag in tags:
         tagged = [u for u in updates if tag["name"] in site_by_slug.get(u.get("site_slug"), {}).get("tags", [])]
         write(os.path.join(public_dir, "feeds", f"{tag['id']}.xml"),
-              build_atom(f"G医t 分類: {tag['name']}", tag["feed"], "sites.html", tagged[:FEED_LIMIT_SITE], names, base_url))
+              build_atom(f"G醫t 分類: {tag['name']}", tag["feed"], "sites.html", tagged[:FEED_LIMIT_SITE], names, base_url))
 
     if not commit_and_push_parent(args.data_dir):
         sys.exit(1)

@@ -10,11 +10,11 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "icons")
-BG = (9, 105, 218)       # #0969da, the link blue of the GitHub-style theme
+BG = (255, 40, 0)        # #FF2800, Ferrari red
 FG = (255, 255, 255)
 FONTS = [r"C:\Windows\Fonts\YuGothB.ttc", r"C:\Windows\Fonts\meiryob.ttc", r"C:\Windows\Fonts\msgothic.ttc",
          "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"]
-TEXT = "G医t"
+TEXT = "G醫t"
 
 
 def font(size: int) -> ImageFont.FreeTypeFont:

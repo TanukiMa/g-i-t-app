@@ -1,4 +1,4 @@
-/* G医t: follow sites, filter the timeline. Everything stays in this browser (localStorage);
+/* G醫t: follow sites, filter the timeline. Everything stays in this browser (localStorage);
  * nothing is sent anywhere. Without JavaScript all updates are simply shown. */
 (function () {
   "use strict";

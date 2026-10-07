@@ -1,4 +1,4 @@
-/* G医t: access analytics (Google Analytics 4 and/or Cloudflare Web Analytics), opt-out style.
+/* G醫t: access analytics (Google Analytics 4 and/or Cloudflare Web Analytics), opt-out style.
  *
  * - This file is only included in the pages when at least one ID is configured at build time
  *   (GA_MEASUREMENT_ID / CF_BEACON_TOKEN); the IDs arrive as data-ga / data-cf attributes.

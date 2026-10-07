@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# G医t pipeline image: website-stalker + Python dependencies + diff2html + Firebase CLI.
+# G醫t pipeline image: website-stalker + Python dependencies + diff2html + Firebase CLI.
 # The image holds only tools and dependencies; the code of g-i-t-app is fetched at start (container/bootstrap.sh).
 #
 # Settings are read from environment variables (GH_PAT, SUPABASE_URL, ...; see docs/cloud-run.md):

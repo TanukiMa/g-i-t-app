@@ -1,4 +1,4 @@
-**G医t Wiki**
+**G醫t Wiki**
 
 - [Home](Home)
 - [設計思想](Design-Philosophy)

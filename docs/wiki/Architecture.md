@@ -1,6 +1,6 @@
 # アーキテクチャ
 
-![G医tのしくみ](https://tanukima.github.io/g-i-t-data/assets/system.svg)
+![G醫tのしくみ](https://tanukima.github.io/g-i-t-data/assets/system.svg)
 
 ## 構成要素
 
@@ -57,7 +57,7 @@
 | `sites/<slug>/diff_<hash7>.html` | 差分ページ |
 | `archive/index.html`、`archive/<年>-W<週>.html`、`archive/<年>-<月>.html` | 週別（詳細）・月別（一覧）の過去ログ |
 | `feeds/all.xml`、`feeds/<slug>.xml`、`feeds/tag-*.xml` | Atom フィード（すべて／サイト別／分類別） |
-| `about.html` | G医tについて |
+| `about.html` | G醫tについて |
 | `privacy.html` | プライバシーとアクセス解析 |
 | `manifest.webmanifest`、`sw.js`、`offline.html` | **アプリとしてインストール**するための設定、Service Worker、オフライン用の案内ページ |
 | `assets/` | CSS、`app.js`（フォロー・絞り込み）、図 |

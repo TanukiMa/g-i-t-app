@@ -1,24 +1,24 @@
 {% extends "base.html" %}
 {% from "_macros.html" import nav, footer, status %}
-{% set root = '' %}{% set style = 'github' %}{% set page_title = 'G医tについて' %}
+{% set root = '' %}{% set style = 'github' %}{% set page_title = 'G醫tについて' %}
 {% set wiki = 'https://github.com/TanukiMa/g-i-t-data/wiki' %}
 {% block content %}
   {{ nav('', root) }}
   <header>
-    <h1>G医tについて</h1>
+    <h1>G醫tについて</h1>
     {{ status(generated, sites, root) }}
   </header>
   <a class="page-back" href="./">← 全体タイムラインへ戻る</a>
 
   <div class="prose">
     <h2>どんなプロジェクトか</h2>
-    <p>G医t（G-I-T）は、医師であるMatanukiが、医療・薬事・学会関連サイトの「本当に必要な更新」を捉えるために設計・運用している個人的なプロジェクトです。</p>
+    <p>G醫t（G-I-T）は、医師であるMatanukiが、医療・薬事・学会関連サイトの「本当に必要な更新」を捉えるために設計・運用している個人的なプロジェクトです。</p>
     <p>約{{ sites|length }}のサイトを１日数回確認し、装飾や動的な部分を取り除いて「意味のあるコンテンツの変化」だけを Git に記録し、日本語で解説します。更新を検知したページは Wayback Machine にも保存します。営利を目的とせず、オープンに公開しています。</p>
     <p>設計の考え方は <a href="{{ wiki }}/Design-Philosophy" target="_blank" rel="noopener noreferrer">Wiki の「設計思想」</a>に書いています。</p>
 
-    <h2>1枚でわかる G医t</h2>
+    <h2>1枚でわかる G醫t</h2>
     <figure class="diagram">
-      <img src="assets/system.svg" alt="G医tのしくみ。①病院・学会・役所のホームページを、②見はりロボットが毎日見に行き、③ノート（Git）に前との違いだけを記録し、④AI（Gemini）が日本語で説明し、⑤Wayback Machineにコピーを残し、⑥記録だな（Supabase）に整理して、⑦けいじばん（このページ）に並べ、⑧あなたが見る。" loading="lazy" />
+      <img src="assets/system.svg" alt="G醫tのしくみ。①病院・学会・役所のホームページを、②見はりロボットが毎日見に行き、③ノート（Git）に前との違いだけを記録し、④AI（Gemini）が日本語で説明し、⑤Wayback Machineにコピーを残し、⑥記録だな（Supabase）に整理して、⑦けいじばん（このページ）に並べ、⑧あなたが見る。" loading="lazy" />
     </figure>
 
     <h2>画面の見かた</h2>
@@ -37,7 +37,7 @@
     <p class="muted">時刻はすべて日本時間（JST）です。</p>
 
     <h2>アプリとして使う</h2>
-    <p>G医t は、スマートフォンやパソコンに<strong>アプリとしてインストール</strong>できます。ホーム画面やスタートメニューから、ブラウザの枠なしで開けます。</p>
+    <p>G醫t は、スマートフォンやパソコンに<strong>アプリとしてインストール</strong>できます。ホーム画面やスタートメニューから、ブラウザの枠なしで開けます。</p>
     <div data-install hidden class="toggle-box"><button type="button" class="install-btn" data-install-button>📲 このブラウザにインストールする</button></div>
     <p data-install-ios hidden class="toggle-box">iPhone / iPad では、Safari の共有ボタン（□に↑）から「<strong>ホーム画面に追加</strong>」を選んでください。</p>
     <p data-installed hidden class="muted">いま、アプリとして開いています。</p>

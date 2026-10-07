@@ -1,11 +1,11 @@
-# G医t Wiki
+# G醫t Wiki
 
-G医t（G-I-T）は、医療・薬事・学会関連サイトの「本当に必要な更新」を捉えて記録し、日本語で解説する個人プロジェクトです。約200のウェブサイトを毎時間見に行き、**意味のある変化だけ**を Git に残します。
+G醫t（G-I-T）は、医療・薬事・学会関連サイトの「本当に必要な更新」を捉えて記録し、日本語で解説する個人プロジェクトです。約200のウェブサイトを毎時間見に行き、**意味のある変化だけ**を Git に残します。
 
 **ダッシュボード（読む場所）: <https://tanukima.github.io/g-i-t-data/>**
 
 ## このWikiについて
-ダッシュボードの [G医tについて](https://tanukima.github.io/g-i-t-data/about.html) は、一般の読者向けの短い説明です。ここには、**設計の考え方・しくみ・設定・データ構造・運用**の詳しい説明を置きます。主な読者は、共同作業者、研究者、そして将来の自分です。
+ダッシュボードの [G醫tについて](https://tanukima.github.io/g-i-t-data/about.html) は、一般の読者向けの短い説明です。ここには、**設計の考え方・しくみ・設定・データ構造・運用**の詳しい説明を置きます。主な読者は、共同作業者、研究者、そして将来の自分です。
 
 | ページ | 内容 |
 |---|---|
@@ -16,7 +16,7 @@ G医t（G-I-T）は、医療・薬事・学会関連サイトの「本当に必�
 | [運用手順](Operations) | サイトの追加、手動実行、リセット、困ったときの対処 |
 
 ## 1枚でわかる図
-![G医tのしくみ](https://tanukima.github.io/g-i-t-data/assets/system.svg)
+![G醫tのしくみ](https://tanukima.github.io/g-i-t-data/assets/system.svg)
 
 ## リポジトリ
 - [g-i-t-app](https://github.com/TanukiMa/g-i-t-app) … 仕組みのコード（Python、GitHub Actions、テンプレート）

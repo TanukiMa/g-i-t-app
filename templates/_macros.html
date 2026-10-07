@@ -10,7 +10,7 @@
 
 {#- "生成: …" line with links to the site overview, the archive and the combined Atom feed. -#}
 {% macro status(generated, sites, root='') -%}
-<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">サイト一覧（{{ sites|length }}）</a> ・ <a href="{{ root }}archive/">アーカイブ</a> ・ <a href="{{ root }}feeds/all.xml" title="Atom フィード（すべて）">📡 Atom</a> ・ <a href="{{ root }}about.html">G医tについて</a></p>
+<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">サイト一覧（{{ sites|length }}）</a> ・ <a href="{{ root }}archive/">アーカイブ</a> ・ <a href="{{ root }}feeds/all.xml" title="Atom フィード（すべて）">📡 Atom</a> ・ <a href="{{ root }}about.html">G醫tについて</a></p>
 {%- endmacro %}
 
 {#- Star button; hidden until app.js is running (it needs JavaScript). -#}
@@ -78,7 +78,7 @@
 
 {% macro footer() -%}
 <footer class="site-footer">
-	<p><a href="https://TanukiMa.github.io/g-i-t-data/">"G医t"</a> is built using <a href="https://github.com/">GitHub</a>, <a href="https://git-scm.com/">Git</a>, <a href="https://github.com/EdJoPaTo/website-stalker">website-stalker</a> (forked by <a href="https://github.com/TanukiMa/website-stalker">Matanuki version</a>), GitHub Actions, <a href="https://supabase.com/">Supabase</a>, <a href="https://web.archive.org/">Internet Archive</a> savepagenow, Google Gemini API, and more.</p>
+	<p><a href="https://TanukiMa.github.io/g-i-t-data/">"G醫t"</a> is built using <a href="https://github.com/">GitHub</a>, <a href="https://git-scm.com/">Git</a>, <a href="https://github.com/EdJoPaTo/website-stalker">website-stalker</a> (forked by <a href="https://github.com/TanukiMa/website-stalker">Matanuki version</a>), GitHub Actions, <a href="https://supabase.com/">Supabase</a>, <a href="https://web.archive.org/">Internet Archive</a> savepagenow, Google Gemini API, and more.</p>
     <p>© 2026 Matanuki、© 2026 MATANUKI.</p>
   </footer>
 {%- endmacro %}

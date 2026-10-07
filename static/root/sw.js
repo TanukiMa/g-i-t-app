@@ -1,4 +1,4 @@
-/* G医t service worker.
+/* G醫t service worker.
  *
  * Goal: installable app + a readable offline copy, WITHOUT ever hiding a newer version when online.
  *   - HTML pages ... network first (a short timeout when a copy exists), the copy is only a fallback.
