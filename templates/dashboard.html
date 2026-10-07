@@ -17,8 +17,8 @@
       <span class="stat-label">変更を検知したサイト</span>
     </div>
     <div class="stat">
-      <span class="stat-value">{{ stats.latest }}</span>
-      <span class="stat-label">最終更新 (JST)</span>
+      <span class="stat-value stat-value--time">{{ stats.latest }}</span>
+      <span class="stat-label">最終更新</span>
     </div>
   </div>
   {{ filter_bar(tags) }}
@@ -29,5 +29,5 @@
     <p>更新履歴はまだありません。</p>
     {% endfor %}
   </div>
-  {% if truncated %}<p class="more">直近 {{ limit }} 件を表示しています（全 {{ total_updates }} 件）。それ以前の更新は <a href="archive/index.html">週別・月別アーカイブ</a>、または各サイトの更新歴ページで見られます。</p>{% endif %}
+  {% if truncated %}<p class="more">直近 {{ limit }} 件を表示しています（全 {{ total_updates }} 件）。それ以前の更新は <a href="archive/">週別・月別アーカイブ</a>、または各サイトの更新歴ページで見られます。</p>{% endif %}
 {% endblock %}

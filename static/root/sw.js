@@ -8,7 +8,7 @@
  */
 const BUILD = "__BUILD_ID__";
 const STATIC_CACHE = "git-static-" + BUILD;   // replaced on every deployment
-const PAGE_CACHE = "git-pages-v1";            // offline copies of pages the reader opened (kept across deployments)
+const PAGE_CACHE = "git-pages-v2";            // offline copies of pages the reader opened (kept across deployments; v2: keys without index.html)
 const PAGE_LIMIT = 60;                        // most recent pages kept
 const WAIT_FOR_NETWORK_MS = 4000;             // with a copy available, fall back to it after this long
 
@@ -18,12 +18,13 @@ const SHELL = [
   "assets/app.js", "assets/pwa.js",
   "assets/icons/icon-192.png",
 ];
-const PRECACHE_PAGES = ["index.html"];
+const PRECACHE_PAGES = [""];   // "" = the scope itself (the timeline)
 
 const scopeUrl = (path) => new URL(path, self.registration.scope).href;
 
 // The offline copy is keyed by path only: a shared "?follow=..." list must never be stored.
-const pageKey = (url) => { const u = new URL(url); return u.origin + u.pathname; };
+// "/index.html" and "/" are the same page: one key (a directory URL ends with "/").
+const pageKey = (url) => { const u = new URL(url); return u.origin + u.pathname.replace(/index\.html$/, ""); };
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
@@ -39,7 +40,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(names
-      .filter((n) => n.startsWith("git-static-") && n !== STATIC_CACHE)
+      .filter((n) => (n.startsWith("git-static-") && n !== STATIC_CACHE) || (n.startsWith("git-pages-") && n !== PAGE_CACHE))
       .map((n) => caches.delete(n)));
     await self.clients.claim();
   })());

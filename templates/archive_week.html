@@ -8,7 +8,7 @@
     {{ status(generated, sites, root) }}
   </header>
   <p class="pager">
-    <a class="page-back" href="index.html">← アーカイブ一覧</a>
+    <a class="page-back" href="./">← アーカイブ一覧</a>
     {% if older %}<a href="{{ older.key }}.html">← {{ older.label }}</a>{% endif %}
     {% if newer %}<a href="{{ newer.key }}.html">{{ newer.label }} →</a>{% endif %}
   </p>

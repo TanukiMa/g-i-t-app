@@ -353,7 +353,15 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
             path = os.path.join(folder, name)
             with open(path, "r", encoding="utf-8") as f:
                 page = f.read()
-            if DIFF_MARK in page or not re.search(r"<body[^>]*>", page):
+            if DIFF_MARK in page:
+                # decorated by an earlier build: only the link to the timeline changed (directory URL, no index.html)
+                fixed = page.replace('href="../../index.html"', 'href="../../"')
+                if fixed != page:
+                    with open(path, "w", encoding="utf-8", newline="") as f:
+                        f.write(fixed)
+                    changed += 1
+                continue
+            if not re.search(r"<body[^>]*>", page):
                 continue
             page = _DIFF_OLD_NAV.sub("", page)      # bar of the first version of this feature
             hash7 = name[5:-5]
@@ -379,14 +387,14 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
             head = (f'{DIFF_MARK}<nav class="git-nav">'
                     f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
                     f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
-                    f'<a href="../../index.html">全体タイムライン</a>'
+                    f'<a href="../../">全体タイムライン</a>'
                     f'<a href="../../sites.html">サイト一覧</a></nav>'
                     f'<header class="git-head"><h1>{site} の更新差分</h1>'
                     f'<dl>{"".join(rows)}</dl>{summary}'
                     f'<p class="how">ページのテキストの、前回の確認との違いです。左が変更前、右が変更後で、'
                     f'<strong>緑</strong>が追加、<strong>赤</strong>が削除された部分です。</p></header>')
             foot = ('<footer class="git-foot"><p>G医t が記録した差分です。'
-                    f'<a href="../../about.html">G医tについて</a> ・ <a href="../../index.html">全体タイムライン</a></p>'
+                    f'<a href="../../about.html">G医tについて</a> ・ <a href="../../">全体タイムライン</a></p>'
                     '<p>差分の表示: Diff to HTML by <a href="https://github.com/rtfpessoa">rtfpessoa</a>（diff2html）</p></footer>')
 
             page = re.sub(r"<h1>Diff to HTML by .*?</h1>", "", page, count=1, flags=re.S)
@@ -554,7 +562,7 @@ def main():
     stats = {
         "updates": len(updates),
         "sites": len({u["site_slug"] for u in updates if u.get("site_slug")}),
-        "latest": to_jst(updates[0]["created_at"], with_suffix=False)[:10] if updates else "-",
+        "latest": to_jst(updates[0]["created_at"]) if updates else "-",
     }
     common = dict(generated=generated, sites=sites, tags=tags, total_updates=len(updates))
 
@@ -613,7 +621,7 @@ def main():
 
     # Atom feeds: all sites, per site, per tag
     write(os.path.join(public_dir, "feeds", "all.xml"),
-          build_atom("G医t 更新情報（すべて）", "feeds/all.xml", "index.html", updates[:FEED_LIMIT_ALL], names, base_url))
+          build_atom("G医t 更新情報（すべて）", "feeds/all.xml", "", updates[:FEED_LIMIT_ALL], names, base_url))
     for site in sites:
         write(os.path.join(public_dir, "feeds", f"{site['slug']}.xml"),
               build_atom(f"G医t {site['name']}", site["feed"], f"sites/{site['slug']}/{SITE_PAGE}",

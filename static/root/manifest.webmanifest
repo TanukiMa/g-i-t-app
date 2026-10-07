@@ -5,7 +5,7 @@
   "description": "医療・薬事・学会関連サイトの「本当に必要な更新」を記録し、日本語で解説します。",
   "lang": "ja",
   "dir": "ltr",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -27,7 +27,7 @@
     {
       "name": "アーカイブ（週別・月別）",
       "short_name": "アーカイブ",
-      "url": "./archive/index.html",
+      "url": "./archive/",
       "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]

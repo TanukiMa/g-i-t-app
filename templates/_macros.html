@@ -2,7 +2,7 @@
 
 {% macro nav(current, root='') -%}
 <nav class="style-switch" aria-label="表示スタイル切り替え">
-    <a href="{{ root }}index.html"{% if current == 'index' %} aria-current="page"{% endif %}>GitHub風</a>
+    <a href="{{ root or './' }}"{% if current == 'index' %} aria-current="page"{% endif %}>GitHub風</a>
     <a href="{{ root }}dashboard.html"{% if current == 'dashboard' %} aria-current="page"{% endif %}>dashboard</a>
     <a href="{{ root }}minimal.html"{% if current == 'minimal' %} aria-current="page"{% endif %}>minimal</a>
   </nav>
@@ -10,7 +10,7 @@
 
 {#- "生成: …" line with links to the site overview, the archive and the combined Atom feed. -#}
 {% macro status(generated, sites, root='') -%}
-<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">サイト一覧（{{ sites|length }}）</a> ・ <a href="{{ root }}archive/index.html">アーカイブ</a> ・ <a href="{{ root }}feeds/all.xml" title="Atom フィード（すべて）">📡 Atom</a> ・ <a href="{{ root }}about.html">G医tについて</a></p>
+<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">サイト一覧（{{ sites|length }}）</a> ・ <a href="{{ root }}archive/">アーカイブ</a> ・ <a href="{{ root }}feeds/all.xml" title="Atom フィード（すべて）">📡 Atom</a> ・ <a href="{{ root }}about.html">G医tについて</a></p>
 {%- endmacro %}
 
 {#- Star button; hidden until app.js is running (it needs JavaScript). -#}

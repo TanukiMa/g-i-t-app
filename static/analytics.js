@@ -37,7 +37,7 @@
   }
 
   function cleanUrl() {
-    return window.location.origin + window.location.pathname; // no query string, no hash
+    return window.location.origin + window.location.pathname.replace(/index\.html$/, ""); // no query string, no hash; "/index.html" = "/"
   }
 
   function addScript(src, attrs) {

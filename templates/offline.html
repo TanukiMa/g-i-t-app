@@ -29,7 +29,7 @@
     // Resolve the link against the service worker's scope: this document is shown at an arbitrary address.
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistration().then(function (reg) {
-        if (reg) document.getElementById("home").href = new URL("index.html", reg.scope).href;
+        if (reg) document.getElementById("home").href = reg.scope;
       });
     }
   </script>
