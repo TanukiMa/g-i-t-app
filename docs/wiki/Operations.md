@@ -68,6 +68,7 @@ supabase db query --linked "select table_name from information_schema.tables whe
 | `PGRST205: Could not find the table` | Supabase の URL / KEY が別プロジェクトのもの、またはスキーマ未適用。`SUPABASE_URL` / `SUPABASE_KEY` を設定し直し、`sql/schema.sql` を適用する |
 | `website-stalker` が `from ... is invalid` | `WEBSITE_STALKER_FROM` が未設定、または `@` と `.` を含まない |
 | `config.yaml cannot be read (line N, column M)` | `config.yaml` の YAML が壊れている（全角の引用符 `”` など）。上の「設定ファイルを検査する」で行を確認して直す。直るまでは、前回読めた版で動く |
+| 実行が約 60 分で `The operation was canceled.` になる／ログが途中から出ない | 以前は、AI の要約を、サイトごとに順番に待っていたため、Gemini が混んでいると、1 時間の上限に達していた。今は、(1) commit と push を先に行い、(2) 行を先に Supabase に入れ、(3) 要約を 4 並列で作り、(4) Gemini の 1 回の要求は 60 秒、1 件の要約は 3 分、実行全体は 40 分で打ち切る。**間に合わなかった要約は「要約を生成できませんでした。」のまま、次回以降に作り直される。** 設定: `STALK_BUDGET_MIN`、`SUMMARY_WORKERS`、`GEMINI_TIMEOUT_SEC`、`SUMMARY_MAX_SEC` |
 | `WARNING: skipping ...: slug ...` | `slug` が `[a-z0-9][a-z0-9_-]*` ではない。直す |
 | `Node.js 20 is deprecated` の警告 | 古いアクションのバージョン。`actions/*` を最新のメジャーに上げる |
 | 700MB 超の警告（ログの `.git size`） | サイズが大きい。変化の多いサイトに `css_select` / `css_remove` / `ignore` を足してノイズを減らす |
