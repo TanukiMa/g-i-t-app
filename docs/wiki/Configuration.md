@@ -1,6 +1,6 @@
 # 設定リファレンス
 
-監視対象は、`g-i-t-data` の **`config.yaml`** で管理します。このファイルが正（Single Source of Truth）です。
+確認先のサイトは、`g-i-t-data` の **`config.yaml`** で管理します。このファイルが正（Single Source of Truth）です。
 
 > **反映されるタイミング:** 設定は、**GitHub 上の `g-i-t-data`** を次回の実行が読んだときに反映されます。手元で編集したら、`git push` してからワークフローを実行してください。
 
@@ -18,7 +18,7 @@ sites:
 
 | キー | 必須 | 内容 |
 |---|---|---|
-| `url` | ○ | 監視するページの URL |
+| `url` | ○ | 確認するページの URL |
 | `name` | | 表示名。日本語でよい（UTF-8、BOM なし）。省略するとホスト名を表示する。パスやコミットには使わない |
 | `slug` | | ID。**`[a-z0-9][a-z0-9_-]*` のみ**（ASCII の小文字・数字・`-`・`_`）。ディレクトリ名と URL になる。省略すると URL から自動生成する。違反するとそのサイトは作られず、ログに警告が出る |
 | `tags` | | 分類のリスト（文字列、`\|` は不可）。絞り込みと、分類別の Atom フィードに使う |
@@ -101,7 +101,7 @@ sites:
 | `LLM_FALLBACK_KEY` | （任意）OpenAI 互換の別プロバイダーの API キー。Gemini が全部だめなときだけ使う |
 | `SUPABASE_URL` | Supabase のプロジェクト URL（`https://<REF>.supabase.co`、末尾に `/` を付けない） |
 | `SUPABASE_KEY` | Supabase の Secret key（`sb_secret_...`）。サーバー側専用。公開しない |
-| `WEBSITE_STALKER_FROM` | 連絡先メールアドレス。監視先サイトへの HTTP `From` ヘッダーとして送られる（`@` と `.` を含むこと） |
+| `WEBSITE_STALKER_FROM` | 連絡先メールアドレス。確認先サイトへの HTTP `From` ヘッダーとして送られる（`@` と `.` を含むこと） |
 | `IA_ACCESS_KEY` / `IA_SECRET_KEY` | Internet Archive の S3 キー（`archive.yml` のみ使用） |
 
 ```powershell

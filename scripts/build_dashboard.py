@@ -14,7 +14,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
 from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, SUMMARY_FAILED,
-                    SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT)
+                    SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT, LEGACY_SUMMARY_INITIAL)
 from provision import configured_sites
 
 try:
@@ -40,11 +40,23 @@ def parse_timestamp(value) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def to_jst(value, with_suffix: bool = True) -> str:
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")  # fixed: no locale needed
+
+
+def to_jst(value, with_suffix: bool = True, weekday=None) -> str:
+    """JST time text. Full display: "2026-10-07 Wednesday 09:46 JST".
+
+    with_suffix=False gives the short "2026-10-07 09:46" (callers slice it: [:10] date, [11:] time);
+    weekday=True puts the English weekday name after the date in that form too (default: only with the suffix).
+    """
+    if weekday is None:
+        weekday = with_suffix
     try:
-        text = parse_timestamp(value).astimezone(JST).strftime("%Y-%m-%d %H:%M")
+        dt = parse_timestamp(value).astimezone(JST)
     except (ValueError, TypeError):
         return str(value or "")
+    day = f"{dt:%Y-%m-%d} {WEEKDAYS[dt.weekday()]}" if weekday else f"{dt:%Y-%m-%d}"
+    text = f"{day} {dt:%H:%M}"
     return f"{text} JST" if with_suffix else text
 
 
@@ -139,7 +151,7 @@ def build_search_index(sites: list, updates: list) -> str:
     for u in updates:  # newest first
         text = plain_summary(u.get("summary"))
         if text and u.get("site_slug"):
-            rows.append([u["site_slug"], to_jst(u["created_at"], with_suffix=False), str(u.get("commit_hash", ""))[:7],
+            rows.append([u["site_slug"], to_jst(u["created_at"], with_suffix=False, weekday=True), str(u.get("commit_hash", ""))[:7],
                          text, u.get("diff_file") or ""])
     return json.dumps({"v": 1,
                        "sites": [[s["slug"], s["name"], s.get("url", ""), s.get("tags", [])] for s in sites],
@@ -388,6 +400,16 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
     return changed
 
 
+def normalize_legacy_summaries(updates: list) -> int:
+    """Show the first-snapshot rows written with an older text as the current SUMMARY_INITIAL (Supabase is not touched)."""
+    n = 0
+    for u in updates:
+        if u.get("summary") in LEGACY_SUMMARY_INITIAL:
+            u["summary"] = SUMMARY_INITIAL
+            n += 1
+    return n
+
+
 def fetch_all(supabase, table: str) -> list:
     """Page through a table; PostgREST caps each response (1000 by default)."""
     rows = []
@@ -503,6 +525,7 @@ def main():
         print("Could not fetch updates; leaving public/ untouched.")
         commit_and_push_parent(args.data_dir)  # still publish new diff pages
         sys.exit(1)
+    print(f"Rewrote {normalize_legacy_summaries(updates)} first-snapshot summar(ies) from the old text.")
 
     os.makedirs(public_dir, exist_ok=True)
     attach_diff_pages(updates, public_dir)

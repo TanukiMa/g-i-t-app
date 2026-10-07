@@ -7,7 +7,7 @@
 | 要素 | 役割 |
 |---|---|
 | **g-i-t-app**（リポジトリ） | コード。Python のパイプライン、GitHub Actions のワークフロー、ページのテンプレート |
-| **g-i-t-data**（リポジトリ） | データ。`config.yaml`（監視対象）、`sites/<slug>/`（取得したページ）、`public/`（ダッシュボード） |
+| **g-i-t-data**（リポジトリ） | データ。`config.yaml`（確認先のサイト）、`sites/<slug>/`（取得したページ）、`public/`（ダッシュボード） |
 | **website-stalker**（Matanuki version） | 各ページの取得と、本文の整形（Rust 製 CLI） |
 | **GitHub Actions** | 毎時の本処理と、30分ごとのアーカイブ処理 |
 | **Gemini API** | 差分の要約（日本語） |
@@ -15,7 +15,7 @@
 | **Internet Archive** | ページのコピーの保存（Wayback Machine） |
 | **GitHub Pages** | `public/` の配信（`gh-pages` ブランチ） |
 
-サブモジュールや、サイトごとのリポジトリは使いません。すべての監視データは `g-i-t-data` の `sites/<slug>/` に入ります。
+サブモジュールや、サイトごとのリポジトリは使いません。すべての取得データは `g-i-t-data` の `sites/<slug>/` に入ります。
 
 ## 2つのワークフロー
 
@@ -43,7 +43,7 @@
 
 - **15秒**間隔（`ARCHIVE_INTERVAL_SEC`）で1件ずつ保存する。20 件（`ARCHIVE_BATCH_SIZE`）ずつ取り出し、**待ちがなくなるか、時間の予算（`ARCHIVE_RUNTIME_MIN`、既定 14 分）を使い切るまで**続ける。
   - GitHub は、頻度の高いスケジュールを間引きます（「15分おき」でも1日に数回しか動かないことがある）。そのため、1回の実行で打ち切らず、動いたときにまとめて処理する作りにしています。
-- 登録する URL は、監視対象のページ自体と、**差分で追加された同一ドメインの文書**（`.pdf` / `.doc(x)` / `.xls(x)` / `.ppt(x)`、1回につき最大50件）。
+- 登録する URL は、確認先のページ自体と、**差分で追加された同一ドメインの文書**（`.pdf` / `.doc(x)` / `.xls(x)` / `.ppt(x)`、1回につき最大50件）。
 - HTTP 429 のときは、その回を打ち切り、15分後に再試行する。robots.txt で拒否された URL は即 `failed`。その他の失敗は、30分から倍々の間隔で最大5回まで再試行し、`last_error` に例外の種類（`BadGateway` など）を記録する。
 - IA のキーが無効（`Unauthorized`）のときは、再試行の回数を使い切らないよう、行を変えずに止めて、実行を失敗にする。
 
@@ -52,7 +52,7 @@
 | ファイル | 内容 |
 |---|---|
 | `index.html` / `dashboard.html` / `minimal.html` | 直近 **200件**の更新。3種類の見た目 |
-| `sites.html` | 監視サイトの一覧 |
+| `sites.html` | サイト一覧 |
 | `sites/<slug>/history.html` | サイト別の更新歴（全件） |
 | `sites/<slug>/diff_<hash7>.html` | 差分ページ |
 | `archive/index.html`、`archive/<年>-W<週>.html`、`archive/<年>-<月>.html` | 週別（詳細）・月別（一覧）の過去ログ |
@@ -67,7 +67,7 @@
 ## フォローと絞り込み（ブラウザ内）
 `assets/app.js` が、星ボタン、「フォロー中のみ」の切り替え、検索、分類での絞り込みを担当します。フォローの選択は `localStorage`（キーは `g-i-t-data:v1:` で始まる）にだけ保存され、サーバーには送られません。`?follow=a,b,c` で選択を共有できます。JavaScript が無効でも、すべての更新が表示されます。
 
-## サイズの監視
+## サイズの確認
 `stalk.yml` が実行のたびに `g-i-t-data` の `.git` のサイズをログに出し、700MB を超えると警告します（GitHub の推奨は 1GB 未満）。`gh-pages` は毎回1コミットに作り直す（`force_orphan`）ので、履歴は溜まりません。
 
 ## アプリとして使う（PWA）

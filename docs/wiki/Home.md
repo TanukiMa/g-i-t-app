@@ -20,5 +20,5 @@ G医t（G-I-T）は、医療・薬事・学会関連サイトの「本当に必�
 
 ## リポジトリ
 - [g-i-t-app](https://github.com/TanukiMa/g-i-t-app) … 仕組みのコード（Python、GitHub Actions、テンプレート）
-- [g-i-t-data](https://github.com/TanukiMa/g-i-t-data) … 監視対象の設定（`config.yaml`）と、取得したデータ
+- [g-i-t-data](https://github.com/TanukiMa/g-i-t-data) … 確認先の設定（`config.yaml`）と、取得したデータ
 - [website-stalker（Matanuki version）](https://github.com/TanukiMa/website-stalker) … 取得と差分検出の部分（元は [EdJoPaTo/website-stalker](https://github.com/EdJoPaTo/website-stalker)）

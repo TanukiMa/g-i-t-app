@@ -8,7 +8,7 @@ G医t のデータは2か所にあります。**Git（g-i-t-data）が一次の�
 
 ```text
 g-i-t-data/
-├── config.yaml                  監視対象のマスター設定
+├── config.yaml                  確認先のマスター設定
 ├── sites/<slug>/
 │   ├── website-stalker.yaml     そのサイトの取得設定
 │   └── <host>/<path>.html       取得して整形したページ（URL から決まるファイル名）
@@ -48,8 +48,8 @@ git log -p --since=2026-10-01 -- sites/naika/
 |---|---|---|
 | `id` | bigserial | 主キー |
 | `site_slug` | varchar(255) | サイトの ID |
-| `domain` | varchar(255) | 監視対象のホスト名 |
-| `url` | text | 監視対象の URL |
+| `domain` | varchar(255) | 確認先のホスト名 |
+| `url` | text | 確認先の URL |
 | `commit_hash` | varchar(64) | `g-i-t-data` のコミット（`Update <slug>`） |
 | `summary` | text | AI要約（Markdown の一部：箇条書き、**太字**、`code`） |
 | `created_at` | timestamptz | 記録した時刻（UTC） |
@@ -58,8 +58,8 @@ git log -p --since=2026-10-01 -- sites/naika/
 
 | 値 | 意味 |
 |---|---|
-| `初回取得: 監視を開始しました。…` | 監視開始時の保存。比べる相手がなく、更新ではない |
-| `AI要約を生成できませんでした。` | Gemini が失敗した。以降の実行で作り直される |
+| `記録を開始しました` | 確認を始めたときの最初の保存。比べる相手がなく、更新ではない（以前は `初回取得: 監視を開始しました。…` という文言で、ダッシュボードは今もこれを同じものとして扱う） |
+| `要約を生成できませんでした。` | Gemini が失敗した。以降の実行で作り直される |
 | `差分を取得できなかったため要約できません。` | コミットが無い等で、作り直せない |
 | `内容に実質的な変更はありません（表示の調整のみ）。` | 要約の結果、意味のある変更がなかった |
 
@@ -69,7 +69,7 @@ git log -p --since=2026-10-01 -- sites/naika/
 | `id` | 主キー |
 | `site_slug`、`commit_hash` | どの更新に属するか（`updates` と結べる） |
 | `url` | 保存する URL |
-| `kind` | `page`（監視対象のページ）または `attachment`（ページに載っていた文書） |
+| `kind` | `page`（確認先のページ）または `attachment`（ページに載っていた文書） |
 | `status` | `pending` / `done` / `failed` |
 | `archive_url` | 保存後の Wayback の URL |
 | `attempts`、`last_error` | 試行回数と、直近のエラー |
