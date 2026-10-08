@@ -5,7 +5,7 @@ separate repository (g-i-t-data-raw), website-stalker fetches the page, and ever
 The number and size of these commits, compared with the commits of g-i-t-data (editors on), shows how much
 noise the editors remove (see scripts/compare_raw.py). No summaries, no database, no dashboard.
 
-    python scripts/raw_experiment.py --data-dir ../g-i-t-data --raw-dir ../g-i-t-data-raw
+    RAW_EXPERIMENT=1 python scripts/raw_experiment.py --data-dir ../g-i-t-data --raw-dir ../g-i-t-data-raw
 """
 import argparse
 import concurrent.futures
@@ -67,6 +67,10 @@ def main():
     parser.add_argument("--no-push", action="store_true")
     args = parser.parse_args()
 
+    # A switch, so that a scheduled job costs nothing while the experiment is not running (RAW_EXPERIMENT=1 turns it on).
+    if os.environ.get("RAW_EXPERIMENT", "").strip().lower() not in ("1", "true", "yes", "on"):
+        print("RAW_EXPERIMENT is not set to 1: the raw arm is off, nothing to do.")
+        return
     if not os.environ.get("WEBSITE_STALKER_FROM"):
         print("WEBSITE_STALKER_FROM is not set.")
         sys.exit(1)
