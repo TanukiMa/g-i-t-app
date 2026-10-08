@@ -303,7 +303,10 @@
     wrap.appendChild(inputRow);
     wrap.appendChild(kwBar);
     wrap.appendChild(box);
-    main.insertBefore(wrap, main.firstChild);
+    var status = $("#status", main);   // the line ending in "G醫tについて": the search box goes on the next row
+    var anchor = status && (status.closest("header") || status);   // #status is the last line of the page header
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
+    else main.insertBefore(wrap, main.firstChild);
 
     function syncSave() {
       var has = terms(input.value).length > 0;

@@ -2,6 +2,7 @@
 # Entry point of the container.
 #   stalk   (default)  clone g-i-t-data -> pipeline (fetch, summarize, push, build dashboard) -> deploy to Firebase Hosting
 #   archive            drain archive_queue (scripts/archive_worker.py)
+#   raw                editor experiment: fetch every site WITHOUT editors into g-i-t-data-raw (scripts/raw_experiment.py)
 set -uo pipefail
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # set by bootstrap.sh (code fetched at start)
 export HOME=/tmp   # Cloud Run's file system is read-only except /tmp; git and firebase write their config there
@@ -9,8 +10,30 @@ export HOME=/tmp   # Cloud Run's file system is read-only except /tmp; git and f
 cmd="${1:-stalk}"
 if [ "$cmd" = "archive" ]; then
   exec python "$APP_DIR/scripts/archive_worker.py"
+elif [ "$cmd" = "raw" ]; then
+  # Raw arm of the editor experiment (scripts/raw_experiment.py): the same sites without any editor, into g-i-t-data-raw.
+  for v in GH_PAT WEBSITE_STALKER_FROM; do
+    if [ -z "${!v:-}" ]; then echo "Missing environment variable: $v" >&2; exit 1; fi
+  done
+  cat > /tmp/askpass.sh <<'ASKPASS'
+#!/bin/sh
+case "$1" in Username*) echo x-access-token ;; *) echo "$GH_PAT" ;; esac
+ASKPASS
+  chmod +x /tmp/askpass.sh
+  export GIT_ASKPASS=/tmp/askpass.sh GIT_TERMINAL_PROMPT=0
+  git config --global user.name "g-i-t-bot"
+  git config --global user.email "g-i-t-bot@users.noreply.github.com"
+  git config --global core.quotepath false
+  mkdir -p /work && cd /work || exit 1
+  git clone --depth 1 "https://github.com/${DATA_REPO:-TanukiMa/g-i-t-data}.git" data || exit 1   # only config.yaml is read
+  git clone --filter=blob:none "https://github.com/${RAW_REPO:-TanukiMa/g-i-t-data-raw}.git" raw || exit 1
+  python "$APP_DIR/scripts/raw_experiment.py" --data-dir ./data --raw-dir ./raw
+  status=$?
+  git -C raw gc --quiet || true
+  echo "g-i-t-data-raw .git size: $(du -sm raw/.git | cut -f1) MB"
+  exit "$status"
 elif [ "$cmd" != "stalk" ]; then
-  echo "usage: entrypoint.sh [stalk|archive]" >&2
+  echo "usage: entrypoint.sh [stalk|archive|raw]" >&2
   exit 2
 fi
 
