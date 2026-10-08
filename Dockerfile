@@ -18,7 +18,7 @@ ARG WS_REV=""
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git build-essential pkg-config rustup \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
 RUN cargo install --locked --git https://github.com/TanukiMa/website-stalker.git ${WS_REV:+--rev $WS_REV} --root /out
 
@@ -27,7 +27,7 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 LAN
 # website-stalker (reqwest 0.13) uses rustls, so no libssl is needed at run time; ca-certificates is.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv tini \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
 # The deploy tools are big (measured: firebase-tools 246 MB, wrangler 174 MB, diff2html-cli 25 MB), and most runs
 # need none of them: DEPLOY_TARGETS defaults to github-pages. Install only what you deploy to:
 #   docker build --build-arg INSTALL_FIREBASE=1 --build-arg INSTALL_WRANGLER=1 -t g-i-t-app .

@@ -117,6 +117,16 @@ h1 .follow-btn { font-size: 0.8em; }
 .gsearch-hit { padding: 0.5em 0; border-top: 1px solid var(--border); }
 .gsearch-head { display: flex; flex-wrap: wrap; gap: 0.2em 0.8em; align-items: baseline; }
 .gsearch-text { margin: 0.25em 0 0; line-height: 1.5; }
+.gsearch-row { display: flex; gap: 0.5rem; align-items: stretch; }
+.gsearch-row > input[type="search"] { flex: 1; min-width: 0; }
+.gsearch-save, .gsearch-chip button { font: inherit; cursor: pointer; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 0.6em; padding: 0.3em 0.8em; }
+.gsearch-save:hover, .gsearch-chip button:hover { border-color: var(--muted); }
+.gsearch-kw { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+.gsearch-chip { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.gsearch-chip button { border: 0; border-radius: 0; padding: 0.2em 0.7em; }
+.gsearch-chip-x { color: var(--muted); padding-left: 0.4em !important; padding-right: 0.6em !important; }
+.gsearch-badge, .gsearch-new { background: #dc2626; color: #fff; font-size: 0.75em; font-weight: 700; border-radius: 999px; padding: 0 0.5em; line-height: 1.6; }
+.gsearch-badge { margin-right: 0.2em; }
 .gsearch mark { background: rgba(255, 213, 0, 0.45); color: inherit; border-radius: 2px; padding: 0 1px; }
 
 /* ---- full-width layout: use the whole browser width; cards flow into as many columns as fit ---- */

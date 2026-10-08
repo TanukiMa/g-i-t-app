@@ -9,7 +9,7 @@
 | **g-i-t-app**（リポジトリ） | コード。Python のパイプライン、GitHub Actions のワークフロー、ページのテンプレート |
 | **g-i-t-data**（リポジトリ） | データ。`config.yaml`（確認先のサイト）、`sites/<slug>/`（取得したページ）、`public/`（ダッシュボード） |
 | **website-stalker**（Matanuki version） | 各ページの取得と、本文の整形（Rust 製 CLI） |
-| **GitHub Actions** | 毎時の本処理と、30分ごとのアーカイブ処理 |
+| **GitHub Actions** | 1 日 4 回の本処理と、その約 50 分後の、アーカイブ処理 |
 | **Gemini API** | 差分の要約（日本語） |
 | **Supabase** | 更新のメタデータと、アーカイブ待ちの一覧 |
 | **Internet Archive** | ページのコピーの保存（Wayback Machine） |
@@ -21,12 +21,12 @@
 
 | ワークフロー | 実行 | 内容 |
 |---|---|---|
-| `stalk.yml` | 毎時 13 分（UTC）と手動 | 取得 → コミット → 要約 → 記録 → ダッシュボード生成 → 公開 |
-| `archive.yml` | 毎時 7 分と 37 分（UTC）と手動 | アーカイブ待ちの URL を、1件ずつ間隔を空けて Internet Archive に保存 |
+| `stalk.yml` | 1 日 4 回（時刻は、`stalk.yml` の `cron` が正。計画は、JST の 8:30・12:30・16:30・22:00）と手動。Cloud Run に移したあとは、使わない（Cloud Scheduler が起動する） | 取得 → コミット → 要約 → 記録 → ダッシュボード生成 → 公開 |
+| `archive.yml` | 1 日 4 回（JST の 9:20・13:20・17:20・22:50 ＝ UTC の 00:20・04:20・08:20・13:50。計画の取得時刻の約 50 分後）と手動。1 回の実行は、最大 60 分。Cloud Run に移したあとも、これは GitHub Actions で動かす（待ち時間が長く、Cloud Run だと課金が無駄になる） | アーカイブ待ちの URL を、1件ずつ間隔を空けて Internet Archive に保存 |
 
 どちらも同時に2つ走らないよう `concurrency` で直列化しています。`archive.yml` は Git に触れず、Supabase と Internet Archive だけを使うので、`stalk.yml` とは競合しません。
 
-## 毎時の処理（stalk.yml → website_stalk.py）
+## 1 回の処理（stalk.yml → website_stalk.py）
 
 1. **プロビジョニング** … `config.yaml` に載っていて、`sites/<slug>/` が無いサイトに、`website-stalker.yaml` を作ってコミットする。`ignore` の追加分は、既存サイトにも追記する。
 2. **取得** … サイトごとに `website-stalker run --all` を実行する。

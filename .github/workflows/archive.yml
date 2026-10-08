@@ -2,9 +2,13 @@ name: Run G-I-T Archive Worker
 
 on:
   schedule:
-    # GitHub fires frequent schedules only a few times a day (and is busiest at :00/:15/:30/:45), so use
-    # off-peak minutes; each run keeps working for up to ARCHIVE_RUNTIME_MIN minutes instead of a fixed count.
-    - cron: '7,37 * * * *'
+    # Four runs a day, each about 50 minutes after a stalk run of the planned schedule (JST 8:30, 12:30, 16:30, 22:00;
+    # Cloud Scheduler runs it once the pipeline has moved to Cloud Run, stalk.yml is then retired), so that the pages
+    # found are saved soon after: JST 9:20, 13:20, 17:20, 22:50 = UTC 00:20, 04:20, 08:20, 13:50. Off-peak minutes
+    # (GitHub is busiest at :00/:15/:30/:45). Each run works for up to ARCHIVE_RUNTIME_MIN minutes: about 12 URLs per
+    # 15 minutes, so ~48 per run with the S3 keys.
+    - cron: '20 0,4,8 * * *'
+    - cron: '50 13 * * *'
   workflow_dispatch:
 
 # Only touches Supabase and the Internet Archive, so it never conflicts with stalk.yml.
@@ -15,7 +19,7 @@ concurrency:
 jobs:
   archive:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 75
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v7
@@ -36,5 +40,6 @@ jobs:
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
           ARCHIVE_BATCH_SIZE: '20'
           ARCHIVE_INTERVAL_SEC: '15'
-          ARCHIVE_RUNTIME_MIN: '14'
+          ARCHIVE_RUNTIME_MIN: '60'
+          PYTHONUNBUFFERED: '1'
         run: python scripts/archive_worker.py

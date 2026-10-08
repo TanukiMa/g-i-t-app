@@ -37,7 +37,7 @@
         {% endif %}
       </tbody>
     </table>
-    <p><strong>送らない情報:</strong> フォロー中のサイトの一覧、共有リンクに含まれるフォロー設定（<code>?follow=…</code> の部分）、サイト内の検索ボックスに入力した文字。</p>
+    <p><strong>送らない情報:</strong> フォロー中のサイトの一覧、★で保存した検索語、共有リンクに含まれるフォロー設定（<code>?follow=…</code> の部分）、サイト内の検索ボックスに入力した文字。</p>
     <p>各サービスでの情報の扱いは、提供者の説明をご覧ください。</p>
     <ul>
       {% if analytics.ga_id %}<li><a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener noreferrer">Google：パートナーのサイトやアプリのサービスを使用するときの Google によるデータ使用</a></li>{% endif %}
@@ -64,6 +64,7 @@
     <p>G醫t 自身は Cookie を使いません。次の設定を、お使いのブラウザの <code>localStorage</code> に保存します（キーは <code>g-i-t-data:v1:</code> で始まります）。</p>
     <ul>
       <li>フォロー中のサイトの一覧と、「すべて／フォロー中のみ」の選択</li>
+      <li>★で保存した検索語と、それぞれの「最後に見た更新」の日時</li>
       {% if analytics.enabled %}<li>アクセス解析を停止・再開した選択</li>{% endif %}
       <li>オフラインで読むための、最近開いたページの控え（ブラウザのキャッシュ領域。最大 60 ページ。共有リンクの <code>?follow=…</code> の部分は保存しません）</li>
     </ul>

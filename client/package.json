@@ -1,0 +1,15 @@
+{
+  "name": "g-i-t-client",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "tauri": "tauri",
+    "icons": "tauri icon icon.png",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "cargo test -p git_core"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

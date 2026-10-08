@@ -158,8 +158,8 @@
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       }).then(function (data) {
-        var names = {};
-        data.sites.forEach(function (s) { names[s[0]] = s[1]; });
+        var names = {}, urls = {};
+        data.sites.forEach(function (s) { names[s[0]] = s[1]; urls[s[0]] = s[2] || ""; });
         index = {
           names: names,
           sites: data.sites.map(function (s) {
@@ -167,7 +167,8 @@
           }),
           updates: data.updates.map(function (u) {
             return { slug: u[0], date: u[1], hash: u[2], text: u[3], diff: u[4],
-                     hay: norm(u[3] + " " + (names[u[0]] || u[0]) + " " + u[1]) };
+                     hay: norm(u[3] + " " + (names[u[0]] || u[0]) + " " + (urls[u[0]] || "") + " " + u[1]),
+                     key: u[1].slice(0, 10) + " " + u[1].slice(-5) };
           }),
         };
         return index;
@@ -220,8 +221,23 @@
     return m ? m[1] : "";
   }
 
+  // ---- saved keywords: kept in localStorage only ([{q, seen}]); "seen" is the newest update (date + time) already looked at ----
+  var keywords = store.get("keywords", []);
+  if (!Array.isArray(keywords)) keywords = [];
+  keywords = keywords.filter(function (k) { return k && typeof k.q === "string" && k.q.trim(); });
+  function saveKeywords() { store.set("keywords", keywords); }
+  function kwId(q) { return terms(q).join(" "); }
+  function findKeyword(q) { var id = kwId(q); return keywords.filter(function (k) { return kwId(k.q) === id; })[0] || null; }
+  function hitsFor(q) {
+    var ts = terms(q);
+    return ts.length ? index.updates.filter(function (u) { return matches(u.hay, ts); }) : [];
+  }
+  function newestKey() { return index && index.updates.length ? index.updates.reduce(function (m, u) { return u.key > m ? u.key : m; }, "") : ""; }
+
   function renderResults(box, query) {
     var ts = terms(query);
+    var saved = findKeyword(query);
+    var seenBefore = saved ? saved.seen : null;
     box.textContent = "";
     if (!ts.length) { box.hidden = true; return; }
     box.hidden = false;
@@ -241,6 +257,7 @@
     hits.slice(0, MAX_HITS).forEach(function (u) {
       var item = el("div", "gsearch-hit");
       var head = el("div", "gsearch-head");
+      if (seenBefore !== null && u.key > seenBefore) head.appendChild(el("span", "gsearch-new", "NEW"));
       head.appendChild(el("time", "muted", u.date));
       var a = el("a", "site-name");
       a.href = ROOT + "sites/" + u.slug + "/history.html";
@@ -257,6 +274,11 @@
       item.appendChild(p);
       box.appendChild(item);
     });
+    if (saved && hits.length && hits[0].key > saved.seen) {   // looked at: the next visit counts only newer updates
+      saved.seen = hits[0].key;
+      saveKeywords();
+      if (box.onSeen) box.onSeen();
+    }
   }
 
   function initSearch() {
@@ -271,13 +293,65 @@
     var box = el("div", "gsearch-results");
     box.hidden = true;
     box.setAttribute("aria-live", "polite");
-    wrap.appendChild(input);
+    var kwBar = el("div", "gsearch-kw");
+    var saveBtn = el("button", "gsearch-save", "★ この語を保存");
+    saveBtn.type = "button";
+    saveBtn.hidden = true;
+    var inputRow = el("div", "gsearch-row");
+    inputRow.appendChild(input);
+    inputRow.appendChild(saveBtn);
+    wrap.appendChild(inputRow);
+    wrap.appendChild(kwBar);
     wrap.appendChild(box);
     main.insertBefore(wrap, main.firstChild);
+
+    function syncSave() {
+      var has = terms(input.value).length > 0;
+      saveBtn.hidden = !has || !!findKeyword(input.value);
+    }
+    function renderKeywords() {
+      kwBar.textContent = "";
+      kwBar.hidden = !keywords.length;
+      keywords.forEach(function (k) {
+        var chip = el("span", "gsearch-chip");
+        var open = el("button", "gsearch-chip-q", "★ " + k.q);
+        open.type = "button";
+        open.title = "この語で検索";
+        open.addEventListener("click", function () { input.value = k.q; run(); });
+        chip.appendChild(open);
+        if (index) {
+          var n = hitsFor(k.q).filter(function (u) { return u.key > k.seen; }).length;
+          if (n) chip.appendChild(el("span", "gsearch-badge", String(n)));
+        }
+        var del = el("button", "gsearch-chip-x", "×");
+        del.type = "button";
+        del.title = "保存した語を削除";
+        del.setAttribute("aria-label", k.q + " を削除");
+        del.addEventListener("click", function () {
+          keywords = keywords.filter(function (x) { return x !== k; });
+          saveKeywords(); renderKeywords(); syncSave(); run();
+        });
+        chip.appendChild(del);
+        kwBar.appendChild(chip);
+      });
+    }
+    box.onSeen = renderKeywords;
+    saveBtn.addEventListener("click", function () {
+      var q = input.value.trim();
+      if (!terms(q).length || findKeyword(q)) return;
+      loadIndex().then(function () {
+        // saved now: only updates detected from here on count as new (the hits already shown are the current state)
+        keywords.push({ q: q, seen: newestKey() });
+        saveKeywords(); renderKeywords(); syncSave(); run();
+      }).catch(function () {});
+    });
+    renderKeywords();
+    if (keywords.length && window.fetch) loadIndex().then(renderKeywords).catch(function () {});
 
     var timer = null;
     function run() {
       var q = input.value;
+      syncSave();
       if (!terms(q).length) { box.hidden = true; box.textContent = ""; return; }
       box.hidden = false;
       if (!index) box.textContent = "読み込み中…";

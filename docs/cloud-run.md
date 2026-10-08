@@ -89,7 +89,7 @@ gcloud run jobs execute g-i-t-stalk --region $REGION --wait     # 手動で 1 �
 gcloud run jobs executions list --job g-i-t-stalk --region $REGION
 ```
 
-- タイムアウトを **50 分**にしているのは、毎時の実行どうしが重ならないようにするためです（重なると、同じ g-i-t-data に同時に push して競合します）。
+- タイムアウトを **50 分**にしているのは、実行どうしが重ならないようにするためです（1 日 4 回なら、間隔は、4 時間以上あるので、もっと長くしても構いません）（重なると、同じ g-i-t-data に同時に push して競合します）。
 - GA4 / Cloudflare のタグ、Gemini のモデル順、フォールバック LLM は、`--set-env-vars` に `GA_MEASUREMENT_ID` などを足して渡します（`docs/wiki/Configuration.md`）。
 
 ## 6. スケジュール（Cloud Scheduler）
@@ -99,14 +99,19 @@ PROJECT_NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber
 gcloud run jobs add-iam-policy-binding g-i-t-stalk --region $REGION \
   --member=serviceAccount:$SA@$PROJECT.iam.gserviceaccount.com --role=roles/run.invoker
 
-gcloud scheduler jobs create http g-i-t-stalk --location $REGION \
-  --schedule "43 23,0-9 * * *" --time-zone UTC \
-  --http-method POST \
-  --uri "https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_NUMBER/jobs/g-i-t-stalk:run" \
+# 1 日 4 回: 朝 8:30、昼 12:30、夕 16:30、夜 22:00（日本時間）。1 本の cron では書けないので、2 つのジョブにする
+URI="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_NUMBER/jobs/g-i-t-stalk:run"
+gcloud scheduler jobs create http g-i-t-stalk-day --location $REGION \
+  --schedule "30 8,12,16 * * *" --time-zone Asia/Tokyo \
+  --http-method POST --uri "$URI" \
+  --oauth-service-account-email $SA@$PROJECT.iam.gserviceaccount.com
+gcloud scheduler jobs create http g-i-t-stalk-night --location $REGION \
+  --schedule "0 22 * * *" --time-zone Asia/Tokyo \
+  --http-method POST --uri "$URI" \
   --oauth-service-account-email $SA@$PROJECT.iam.gserviceaccount.com
 ```
 
-スケジュールは、これまでの `stalk.yml`（UTC の毎時 43 分、23〜9 時）と同じです。切り替えるときは、GitHub 側を止めます。
+スケジュールは、1 日 4 回（日本時間 8:30・12:30・16:30・22:00）です。**アーカイブ（`archive.yml`）は、Cloud Run に移さず、GitHub Actions のままにします**（約 50 分後の 4 回、JST 9:20・13:20・17:20・22:50）。1 件ごとに 15〜60 秒の待ちがあり、Cloud Run では、待ちも課金されるためです。GitHub Actions の `stalk.yml`（`cron` は UTC で書く）とは、別に、Cloud Scheduler 側で時刻帯を指定できます。Cloud Scheduler は、時刻どおりに起動します（GitHub の `schedule` のような遅れは、ありません）。
 
 ```bash
 gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
