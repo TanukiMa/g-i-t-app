@@ -122,6 +122,14 @@ def render_markdown(text) -> Markup:
     return Markup("".join(out))
 
 
+def summary_by(model) -> str:
+    """Who wrote a summary, for display: the model name, "ルール判定" when no AI was needed, "" when unknown (old rows)."""
+    model = str(model or "").strip()
+    if not model:
+        return ""
+    return "ルール判定（AI未使用）" if model == "rule" else model
+
+
 def excerpt(summary, limit: int = 90) -> str:
     """One plain-text line of an AI summary for the site list ("" when there is nothing useful)."""
     if not summary or summary in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
@@ -288,7 +296,9 @@ def build_atom(title: str, feed_path: str, page_path: str, entries: list, names:
         for a in u.get("archives", []):
             if a.get("kind") == "page" and a.get("status") == "done" and a.get("archive_url"):
                 links.append(f'<a href="{html.escape(a["archive_url"], quote=True)}">Wayback Machine</a>')
-        body = str(render_markdown(u.get("summary"))) + "<p>" + " ・ ".join(links) + "</p>"
+        by = summary_by(u.get("summary_model"))
+        body = (str(render_markdown(u.get("summary"))) + (f"<p><small>要約: {html.escape(by)}</small></p>" if by else "")
+                + "<p>" + " ・ ".join(links) + "</p>")
         ET.SubElement(entry, _atom("content"), type="html").text = body
 
     ET.indent(feed)
@@ -382,7 +392,9 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
             summary = ""
             text = (upd or {}).get("summary") or ""
             if text and text not in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
-                summary = (f'<details open><summary>AI による要約</summary>{render_markdown(text)}'
+                by = summary_by((upd or {}).get("summary_model"))
+                by_note = f'<p class="how">要約: {html.escape(by)}</p>' if by else ""
+                summary = (f'<details open><summary>AI による要約</summary>{render_markdown(text)}{by_note}'
                            '<p class="how">AI の要約は誤りを含むことがあります。下の差分、または確認先のページで確かめてください。</p></details>')
             head = (f'{DIFF_MARK}<nav class="git-nav">'
                     f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
@@ -575,7 +587,7 @@ def main():
 
     site_by_slug = {s_["slug"]: s_ for s_ in sites}
     env.filters.update(
-        jst=to_jst, hostname=hostname, md=render_markdown, excerpt=excerpt,
+        jst=to_jst, hostname=hostname, md=render_markdown, excerpt=excerpt, summary_by=summary_by,
         jst_hm=lambda v: to_jst(v, with_suffix=False)[11:],
         site_name=lambda slug: names.get(slug, slug),
         site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),

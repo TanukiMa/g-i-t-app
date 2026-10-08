@@ -52,6 +52,7 @@ git log -p --since=2026-10-01 -- sites/naika/
 | `url` | text | 確認先の URL |
 | `commit_hash` | varchar(64) | `g-i-t-data` のコミット（`Update <slug>`） |
 | `summary` | text | AI要約（Markdown の一部：箇条書き、**太字**、`code`） |
+| `summary_model` | text | 要約を書いたモデル名。AI を使わず決めた場合は `rule`。古い行は空 |
 | `created_at` | timestamptz | 記録した時刻（UTC） |
 
 `summary` には、要約の代わりに次の定型文が入ることがあります。

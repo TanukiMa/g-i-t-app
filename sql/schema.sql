@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS updates (
     url TEXT NOT NULL,
     commit_hash VARCHAR(64) NOT NULL,
     summary TEXT NOT NULL,
+    summary_model TEXT,   -- who wrote the summary: a model name, 'rule' (no AI needed), NULL (unknown / older rows)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -32,3 +33,4 @@ CREATE INDEX IF NOT EXISTS idx_archive_queue_commit ON archive_queue(site_slug, 
 
 -- Migration for an existing deployment:
 -- ALTER TABLE updates DROP COLUMN IF EXISTS archive_url;
+-- ALTER TABLE updates ADD COLUMN IF NOT EXISTS summary_model TEXT;   (sql/add-summary-model.sql)
