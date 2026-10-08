@@ -23,7 +23,9 @@ else
 fi
 
 # The image holds the dependencies of the requirements.txt it was built with. A different one needs a new image.
-if ! diff -q <(tr -d '\r' < /opt/requirements.baked.txt) <(tr -d '\r' < "$app/requirements.txt") >/dev/null; then
+# (not checked for --help: the help must always be readable)
+case "${1:-}" in -h|--help|help) skip_requirements_check=1 ;; *) skip_requirements_check= ;; esac
+if [ -z "$skip_requirements_check" ] && ! diff -q <(tr -d '\r' < /opt/requirements.baked.txt) <(tr -d '\r' < "$app/requirements.txt") >/dev/null; then
   echo "requirements.txt differs from the one this image was built with. Rebuild the image (docs/cloud-run.md, step 4)" >&2
   echo "or pin APP_REF to a commit that matches it." >&2
   exit 3

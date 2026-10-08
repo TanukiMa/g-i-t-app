@@ -562,7 +562,11 @@ def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: st
 def main():
     parser = argparse.ArgumentParser(description="Build static dashboard for G-I-T")
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
+    parser.add_argument("--no-push", action="store_true",
+                        help="only write public/: no commit, no push (also DASHBOARD_NO_PUSH=1); for a rebuild after a change of templates or scripts")
     args = parser.parse_args()
+    if os.environ.get("DASHBOARD_NO_PUSH", "").strip().lower() in ("1", "true", "yes", "on"):
+        args.no_push = True
 
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     templates_dir = os.path.join(app_dir, "templates")
@@ -573,7 +577,8 @@ def main():
     updates = fetch_updates_from_supabase()
     if updates is None:
         print("Could not fetch updates; leaving public/ untouched.")
-        commit_and_push_parent(args.data_dir)  # still publish new diff pages
+        if not args.no_push:
+            commit_and_push_parent(args.data_dir)  # still publish new diff pages
         sys.exit(1)
     print(f"Rewrote {normalize_legacy_summaries(updates)} first-snapshot summar(ies) from the old text.")
 
@@ -675,7 +680,9 @@ def main():
         write(os.path.join(public_dir, "feeds", f"{tag['id']}.xml"),
               build_atom(f"G醫t 分類: {tag['name']}", tag["feed"], "sites.html", tagged[:FEED_LIMIT_SITE], names, base_url))
 
-    if not commit_and_push_parent(args.data_dir):
+    if args.no_push:
+        print("--no-push: public/ is written, nothing is committed or pushed.")
+    elif not commit_and_push_parent(args.data_dir):
         sys.exit(1)
     if config_problems():
         print("config.yaml could not be read; the dashboard was built from the last readable version. Failing the run so that it gets fixed.")

@@ -209,9 +209,12 @@ def _generate_with_fallback_provider(contents: str, deadline=None):
         return None
 
 
-def summarize_diff_with_gemini(diff_text: str):
+def summarize_diff_with_gemini(diff_text: str, models=None, allow_fallback: bool = True):
     """(summary, model): the model that wrote the summary (None when no AI was involved, MODEL_RULE when the
-    net changes hold nothing but markup)."""
+    net changes hold nothing but markup).
+
+    models: try exactly these models, in this order, instead of GEMINI_MODELS (resummarize.py --model).
+    allow_fallback=False: never use the LLM_FALLBACK_* provider (the recorded model is then the one that was asked for)."""
     if not diff_text.strip():
         return "更新差分はありませんでした。", None
     if time.monotonic() >= run_deadline(SUMMARY_RESERVE_MIN):
@@ -227,7 +230,7 @@ def summarize_diff_with_gemini(diff_text: str):
 
     api_key = os.environ.get("GEMINI_API_KEY")
     gemini_ready = bool(api_key and genai)
-    fallback_ready = all(os.environ.get(k) for k in ("LLM_FALLBACK_URL", "LLM_FALLBACK_KEY", "LLM_FALLBACK_MODEL"))
+    fallback_ready = allow_fallback and all(os.environ.get(k) for k in ("LLM_FALLBACK_URL", "LLM_FALLBACK_KEY", "LLM_FALLBACK_MODEL"))
     if not gemini_ready and not fallback_ready:
         print("GEMINI_API_KEY is not set or google-genai is missing (and no LLM_FALLBACK_* provider). Skipping AI summarization.")
         return "Gemini APIキー未設定のため自動要約はスキップされました。", None
@@ -240,7 +243,7 @@ def summarize_diff_with_gemini(diff_text: str):
     if gemini_ready:
         # http_options.timeout is in milliseconds: no single request may hang.
         client = genai.Client(api_key=api_key, http_options={"timeout": int(GEMINI_TIMEOUT_SEC * 1000)})
-        for model in GEMINI_MODELS:
+        for model in (models or GEMINI_MODELS):
             if time.monotonic() >= deadline:
                 break
             with _models_lock:
@@ -257,7 +260,7 @@ def summarize_diff_with_gemini(diff_text: str):
                     print(f"{model}: unavailable for the rest of this run; trying the next model.")
                 # any other failure (e.g. persistent 503): the next model may have capacity
 
-    text = _generate_with_fallback_provider(contents, deadline) if time.monotonic() < deadline else None
+    text = _generate_with_fallback_provider(contents, deadline) if allow_fallback and time.monotonic() < deadline else None
     if text:
         return text, os.environ.get("LLM_FALLBACK_MODEL")
     return SUMMARY_FAILED, None
