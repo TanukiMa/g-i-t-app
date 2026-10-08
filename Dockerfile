@@ -28,7 +28,15 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 LAN
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv tini \
  && rm -rf /var/lib/apt/lists/*
-RUN npm install -g diff2html-cli firebase-tools wrangler && npm cache clean --force
+# The deploy tools are big (measured: firebase-tools 246 MB, wrangler 174 MB, diff2html-cli 25 MB), and most runs
+# need none of them: DEPLOY_TARGETS defaults to github-pages. Install only what you deploy to:
+#   docker build --build-arg INSTALL_FIREBASE=1 --build-arg INSTALL_WRANGLER=1 -t g-i-t-app .
+ARG INSTALL_FIREBASE=0
+ARG INSTALL_WRANGLER=0
+RUN npm install -g diff2html-cli \
+      $([ "$INSTALL_FIREBASE" = "1" ] && echo firebase-tools) \
+      $([ "$INSTALL_WRANGLER" = "1" ] && echo wrangler) \
+ && npm cache clean --force
 COPY --from=stalker /out/bin/website-stalker /usr/local/bin/website-stalker
 
 # Dependencies only. The application code (scripts, templates, static, container/entrypoint.sh) is fetched

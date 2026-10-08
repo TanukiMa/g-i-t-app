@@ -36,6 +36,7 @@
     </dl>
     <p class="muted">時刻はすべて日本時間（JST）です。</p>
 
+    {% if pwa_enabled %}
     <h2>アプリとして使う</h2>
     <p>G醫t は、スマートフォンやパソコンに<strong>アプリとしてインストール</strong>できます。ホーム画面やスタートメニューから、ブラウザの枠なしで開けます。</p>
     <div data-install hidden class="toggle-box"><button type="button" class="install-btn" data-install-button>📲 このブラウザにインストールする</button></div>
@@ -45,6 +46,7 @@
       <li>Android / Windows / Mac（Chrome・Edge）: アドレスバーのインストールのボタン、または上のボタンから。</li>
       <li>つながっているときは、いつも最新のページを表示します。接続できないときだけ、最近開いたページの<strong>保存済みの控え</strong>を表示します（最新ではない場合があります）。</li>
     </ul>
+    {% endif %}
 
     <h2>ご利用にあたって</h2>
     <ul>

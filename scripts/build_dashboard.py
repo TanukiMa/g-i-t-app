@@ -517,14 +517,31 @@ def asset_version(static_dir: str) -> str:
     return digest.hexdigest()[:10]
 
 
-def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: str = ""):
-    """Copy manifest.webmanifest / sw.js to the site root (a service worker only controls its own directory)."""
+def pwa_enabled() -> bool:
+    """PWA_ENABLED=0 (also false / no / off) switches the installable app off; everything else leaves it on."""
+    return os.environ.get("PWA_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: str = "", pwa: bool = True):
+    """Copy manifest.webmanifest / sw.js to the site root (a service worker only controls its own directory).
+
+    With pwa=False the manifest is not published (and removed when an earlier build left one) and sw.js is the retiring
+    worker (static/sw-retire.js): browsers that installed the app earlier fetch it and clean themselves up.
+    """
     if not os.path.isdir(src_dir):
         return
     for name in os.listdir(src_dir):
         path = os.path.join(src_dir, name)
         if not os.path.isfile(path):
             continue
+        if not pwa and name == "manifest.webmanifest":
+            stale = os.path.join(public_dir, name)
+            if os.path.isfile(stale):
+                os.remove(stale)
+                print(f"Removed {stale} (PWA_ENABLED=0)")
+            continue
+        if not pwa and name == "sw.js":
+            path = os.path.join(os.path.dirname(src_dir), "sw-retire.js")
         with open(path, "r", encoding="utf-8") as f:
             text = f.read().replace("__BUILD_ID__", build_id).replace("__ASSET_VERSION__", version)
         write(os.path.join(public_dir, name), text)
@@ -563,7 +580,7 @@ def main():
         site_name=lambda slug: names.get(slug, slug),
         site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
     )
-    env.globals.update(initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
+    env.globals.update(pwa_enabled=pwa_enabled(), initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
                        analytics=analytics_settings())
 
     print(f"Decorated {decorate_diff_pages(public_dir, names, updates)} diff page(s).")
@@ -584,7 +601,8 @@ def main():
     if os.path.isdir(static_dir):
         shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("root"))
-        publish_root_files(os.path.join(static_dir, "root"), public_dir, build_id, env.globals["asset_version"])
+        publish_root_files(os.path.join(static_dir, "root"), public_dir, build_id, env.globals["asset_version"],
+                           env.globals["pwa_enabled"])
     write(os.path.join(public_dir, "offline.html"), env.get_template("offline.html").render())
 
     # Three views of the latest part of the timeline (GitHub-style / dashboard / minimal)

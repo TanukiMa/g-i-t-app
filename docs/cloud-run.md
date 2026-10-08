@@ -64,6 +64,8 @@ done
 gcloud artifacts repositories create git --repository-format=docker --location=$REGION
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/git/g-i-t-app:latest
 gcloud builds submit --tag $IMAGE .      # 初回は Rust のビルドで 10 分ほどかかる
+# 公開先に Firebase / Cloudflare を使うときだけ、そのツールを、イメージに入れる（既定は、入れない。入れると、約 250 MB / 約 170 MB 増える）:
+#   gcloud builds submit --tag $IMAGE --substitutions=...  /  docker build --build-arg INSTALL_FIREBASE=1 --build-arg INSTALL_WRANGLER=1 .
 ```
 
 **イメージに入っているのは、ツールと依存だけです**（website-stalker、Node、Python の依存）。`scripts/`・`templates/`・`static/` などの g-i-t-app のコードは、**実行のたびに GitHub（`APP_REPO` の `APP_REF`）から取得します**。コードを変えたときは、push するだけで、次の実行から反映されます。イメージの作り直しが要るのは、`requirements.txt` か `Dockerfile` を変えたときだけです（`requirements.txt` が焼き込んだものと違うと、起動時にエラーで止まります）。

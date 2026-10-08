@@ -82,6 +82,8 @@ jobs:
           WEBSITE_STALKER_FROM: ${{ secrets.WEBSITE_STALKER_FROM }}
           # Show the log while the run is going; stop starting new work after ~32 min of the 60 min limit
           PYTHONUNBUFFERED: '1'
+          # The installable app (PWA) is switched off for now; remove this line (or set '1') to switch it on again
+          PWA_ENABLED: '0'
           STALK_BUDGET_MIN: '40'
         run: |
           python app/scripts/website_stalk.py --data-dir ./data

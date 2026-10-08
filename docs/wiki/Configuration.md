@@ -150,6 +150,7 @@ gh secret list --repo TanukiMa/g-i-t-app
 | `ARCHIVE_BATCH_SIZE` | `20` | アーカイブ処理が、1ラウンドで取り出す URL の件数 |
 | `ARCHIVE_RUNTIME_MIN` | `14` | 1回の実行で、新しい URL に着手する時間の予算（分）。待ちがなくなれば、その前に終わる |
 | `ARCHIVE_INTERVAL_SEC` | `15` | 保存の間隔（秒） |
+| `PWA_ENABLED` | （未設定 = オン） | `0`（`false` / `no` / `off`）にすると、アプリとしてのインストールを案内しない（マニフェスト・インストールのボタン・案内を出さず、`sw.js` は、以前に入れた端末のキャッシュを消して、自分を解除するだけの版になる）。ブラウザの「ホーム画面に追加」は、止められない。`stalk.yml`・`.env`・Cloud Run の環境変数で設定する |
 | `SITE_BASE_URL` | `https://tanukima.github.io/g-i-t-data/` | Atom フィード内の絶対 URL の基準 |
 | `GA_MEASUREMENT_ID` | （未設定） | Google アナリティクス 4 の測定 ID（`G-XXXXXXXXXX`）。Variables に設定する。未設定または形式が違うと、Google のタグは出力されない |
 | `CF_BEACON_TOKEN` | （未設定） | Cloudflare Web Analytics のトークン。Variables に設定する。未設定または形式が違うと、Cloudflare のタグは出力されない |
