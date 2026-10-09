@@ -2,7 +2,8 @@
 # G醫t pipeline image: website-stalker + Python dependencies + diff2html + the CLI of ONE deploy target.
 # The image holds only tools and dependencies; the code of g-i-t-app is fetched at start (container/bootstrap.sh).
 #
-# Build from the repository root (the build context), choose the target with --target:
+# Build from the repository root (the build context; from container/ the COPY of requirements.txt fails), choose the target with
+# --target, or let `pwsh container/build.ps1 [firebase|cloudflare|base]` do it from anywhere:
 #   --target firebase     Cloud Run + Firebase Hosting (+ GitHub Pages)   firebase-tools   about +250 MB   (default)
 #   --target cloudflare   Cloudflare Pages (+ GitHub Pages)               wrangler         about +170 MB
 #   --target base         GitHub Pages only (no extra CLI)

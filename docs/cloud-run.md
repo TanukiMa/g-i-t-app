@@ -33,6 +33,9 @@ gcloud services enable run.googleapis.com cloudscheduler.googleapis.com secretma
   monitoring.googleapis.com serviceusage.googleapis.com
 
 # Firebase をこのプロジェクトに追加（コンソール https://console.firebase.google.com/ で「プロジェクトを追加」→ 既存の GCP プロジェクトを選ぶ）
+# （CLI で `projects:addfirebase` が 403 PERMISSION_DENIED になるときは、コンソールの「プロジェクトを追加」で、
+#  既存の GCP プロジェクトを選ぶ。Firebase の利用規約への同意が要る。Google Workspace の組織では、管理コンソールの
+#  「追加の Google サービス」で Firebase が無効だと、組織のメンバーは追加できない）
 # Hosting を使い始める（初回だけ）
 npx firebase-tools init hosting --project $PROJECT   # 質問は、public=data/public、SPA=No、GitHub 連携=No、上書き=No
 ```
@@ -221,6 +224,7 @@ gcloud run jobs create g-i-t-archive --image $IMAGE --region $REGION --args=arch
 ## 手元での確認
 
 ```bash
+# リポジトリのルートで実行する（container/ の中だと requirements.txt が見つからない）。どこからでも: pwsh container/build.ps1 firebase
 docker build -f container/Dockerfile --target firebase -t g-i-t-app:firebase .      # Cloudflare 版は --target cloudflare
 # 作業中のコードで試すときは、-v "$PWD:/app" を付ける（付けないと GitHub の main を取得する）
 cp .env.sample .env      # 値を記入する（.env は git・docker の対象外）
