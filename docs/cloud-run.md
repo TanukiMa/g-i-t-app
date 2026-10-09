@@ -63,10 +63,12 @@ done
 ```bash
 gcloud artifacts repositories create git --repository-format=docker --location=$REGION
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/git/g-i-t-app:latest
-gcloud builds submit --tag $IMAGE .      # 初回は Rust のビルドで 10 分ほどかかる
-# 公開先に Firebase / Cloudflare を使うときだけ、そのツールを、イメージに入れる（既定は、入れない。入れると、約 250 MB / 約 170 MB 増える）:
-#   gcloud builds submit --tag $IMAGE --substitutions=...  /  docker build --build-arg INSTALL_FIREBASE=1 --build-arg INSTALL_WRANGLER=1 .
+# Firebase Hosting に公開するので _INSTALL_FIREBASE=1（Cloudflare Pages も使うなら、_INSTALL_WRANGLER=1 も足す）。
+# `--tag` だけだと、ビルド引数を渡せないので、cloudbuild.yaml を使う。初回は Rust のビルドで 10〜20 分かかる
+gcloud builds submit --config cloudbuild.yaml --substitutions _IMAGE=$IMAGE,_INSTALL_FIREBASE=1 .
 ```
+
+`firebase-tools` は約 250 MB、`wrangler` は約 170 MB、イメージが大きくなります（既定は、どちらも入れません）。入れ忘れると、`DEPLOY_TARGETS` にその公開先があるジョブは、起動時にエラーで止まります（実行の最後ではなく、最初に分かります）。
 
 **イメージに入っているのは、ツールと依存だけです**（website-stalker、Node、Python の依存）。`scripts/`・`templates/`・`static/` などの g-i-t-app のコードは、**実行のたびに GitHub（`APP_REPO` の `APP_REF`）から取得します**。コードを変えたときは、push するだけで、次の実行から反映されます。イメージの作り直しが要るのは、`requirements.txt` か `Dockerfile` を変えたときだけです（`requirements.txt` が焼き込んだものと違うと、起動時にエラーで止まります）。
 
@@ -82,7 +84,7 @@ website-stalker のフォークを更新したときだけ、`--no-cache` で作
 gcloud run jobs create g-i-t-stalk \
   --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com \
   --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 3000s \
-  --set-env-vars FIREBASE_PROJECT=$PROJECT,SITE_BASE_URL=https://$DOMAIN/ \
+  --set-env-vars "^@^FIREBASE_PROJECT=$PROJECT@SITE_BASE_URL=https://$DOMAIN/@DEPLOY_TARGETS=github-pages,firebase@PWA_ENABLED=0" \
   --set-secrets GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest,WEBSITE_STALKER_FROM=WEBSITE_STALKER_FROM:latest
 
 gcloud run jobs execute g-i-t-stalk --region $REGION --wait     # 手動で 1 回
@@ -90,7 +92,38 @@ gcloud run jobs executions list --job g-i-t-stalk --region $REGION
 ```
 
 - タイムアウトを **50 分**にしているのは、実行どうしが重ならないようにするためです（1 日 4 回なら、間隔は、4 時間以上あるので、もっと長くしても構いません）（重なると、同じ g-i-t-data に同時に push して競合します）。
-- GA4 / Cloudflare のタグ、Gemini のモデル順、フォールバック LLM は、`--set-env-vars` に `GA_MEASUREMENT_ID` などを足して渡します（`docs/wiki/Configuration.md`）。
+- 環境変数の値にカンマがあるので（`DEPLOY_TARGETS=github-pages,firebase`）、`--set-env-vars` の先頭に **`^@^`**（区切りを `@` に変える記法）を付けています。付けないと、`firebase` が別の変数として解釈されてエラーになります。
+- **`DEPLOY_TARGETS` を指定しないと、既定の `github-pages` だけに出て、Firebase には何も出ません。** 移行の間は `github-pages,firebase` の両方に出し、切り替えが済んだら `firebase` だけにします（6b）。
+- GA4 / Cloudflare のタグ、Gemini のモデル順、フォールバック LLM は、`--set-env-vars` に `GA_MEASUREMENT_ID` などを足して渡します（`docs/wiki/Configuration.md`）。値にカンマが入るもの（`GEMINI_MODELS` など）は、`--set-env-vars "^@^GEMINI_MODELS=a,b,c@KEY=…"` のように区切り文字を変えます。
+- 最初は `--memory 1Gi` で始め、実行のログとメトリクスで足りなければ `2Gi` にします（実測はしていません）。
+
+## 5b. そのほかのジョブ（同じイメージ、引数だけ違う）
+
+```bash
+# ダッシュボードの見た目だけ直したとき。取得・git の commit と push・AI は動かない（GH_PAT は clone 用）
+gcloud run jobs create g-i-t-remake-dashboard \
+  --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com --args=remake-dashboard \
+  --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 900s \
+  --set-env-vars "^@^FIREBASE_PROJECT=$PROJECT@SITE_BASE_URL=https://$DOMAIN/@DEPLOY_TARGETS=github-pages,firebase@PWA_ENABLED=0" \
+  --set-secrets GH_PAT=GH_PAT:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest
+
+# 保存済みの要約を作り直す（引数は実行のたびに渡す）
+gcloud run jobs create g-i-t-resummarize \
+  --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com --args=resummarize \
+  --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 1800s \
+  --set-secrets GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest
+gcloud run jobs execute g-i-t-resummarize --region $REGION --wait --args=resummarize,--dry-run
+gcloud run jobs execute g-i-t-resummarize --region $REGION --wait --args=resummarize,--limit,50
+
+# 論文用の実験（RAW_EXPERIMENT=1 の間だけ。通常は作らない）
+gcloud run jobs create g-i-t-raw \
+  --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com --args=raw \
+  --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 3000s \
+  --set-env-vars RAW_EXPERIMENT=1 \
+  --set-secrets GH_PAT=GH_PAT:latest,WEBSITE_STALKER_FROM=WEBSITE_STALKER_FROM:latest
+```
+
+`--args` の指定は、ジョブの既定の引数になります。実行時に変えるときは、`gcloud run jobs execute … --args=…` を使います。
 
 ## 6. スケジュール（Cloud Scheduler）
 
@@ -119,7 +152,7 @@ gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
 
 ## 6b. 公開先を選ぶ（`DEPLOY_TARGETS`）
 
-同じイメージが、次の公開先のどれにでも（複数同時にも）デプロイできます。`--set-env-vars DEPLOY_TARGETS=firebase,cloudflare-pages` のように、カンマ区切りで指定します（既定は `github-pages`）。各公開先は独立に実行され、1 つ失敗しても残りは実行されます（終了コードは失敗になります）。
+同じイメージが、次の公開先のどれにでも（複数同時にも）デプロイできます。`DEPLOY_TARGETS=firebase,cloudflare-pages` のように、カンマ区切りで指定します（値にカンマが入るので、`--set-env-vars "^@^DEPLOY_TARGETS=firebase,cloudflare-pages@KEY=値"` のように、区切り文字を `@` に変えて渡します）（既定は `github-pages`）。各公開先は独立に実行され、1 つ失敗しても残りは実行されます（終了コードは失敗になります）。
 
 | 値 | 公開先 | 必要な設定 |
 |---|---|---|
