@@ -175,7 +175,9 @@ main { max-width: none; width: 100%; padding-inline: clamp(16px, 3vw, 56px); }
 .entry .entry-time { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.85em; }
 .entry .entry-time time { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .entry .entry-commit { margin-top: 0.15rem; }
-.entry .summary-model { margin: 0.2rem 0 0; font-size: 0.78em; color: var(--muted); }
+.entry .summary-title { margin: 0.75rem 0 0; font-size: 0.8em; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); }
+.entry .summary-title + .summary { margin-top: 0.2rem; }
+.entry .summary-model { margin: 0.2rem 0 0; font-size: 0.78em; color: var(--muted); text-align: right; }
 /* minimal: its h2 used to be a small grey italic date line; it is now the site name and must stand out */
 .style-minimal .entry h2 { font-style: normal; font-weight: 600; color: var(--fg); font-size: 1.15rem; }
 .style-minimal .entry .entry-time { font-size: 0.8em; }

@@ -123,11 +123,10 @@ def render_markdown(text) -> Markup:
 
 
 def summary_by(model) -> str:
-    """Who wrote a summary, for display: the model name, "ルール判定" when no AI was needed, "" when unknown (old rows)."""
+    """The line at the end of a summary: "<model> による要約". Nothing ("") when the model is unknown (older rows) or no AI
+    was used (summary_model "rule": the text says by itself that nothing changed)."""
     model = str(model or "").strip()
-    if not model:
-        return ""
-    return "ルール判定（AI未使用）" if model == "rule" else model
+    return "" if model in ("", "rule") else f"{model} による要約"
 
 
 def excerpt(summary, limit: int = 90) -> str:
@@ -297,7 +296,7 @@ def build_atom(title: str, feed_path: str, page_path: str, entries: list, names:
             if a.get("kind") == "page" and a.get("status") == "done" and a.get("archive_url"):
                 links.append(f'<a href="{html.escape(a["archive_url"], quote=True)}">Wayback Machine</a>')
         by = summary_by(u.get("summary_model"))
-        body = (str(render_markdown(u.get("summary"))) + (f"<p><small>要約: {html.escape(by)}</small></p>" if by else "")
+        body = (str(render_markdown(u.get("summary"))) + (f"<p><small>{html.escape(by)}</small></p>" if by else "")
                 + "<p>" + " ・ ".join(links) + "</p>")
         ET.SubElement(entry, _atom("content"), type="html").text = body
 
@@ -330,13 +329,14 @@ DIFF_STYLE = (
     ".git-head details{margin:.5rem 0;padding:.5rem .9rem;border:1px solid #d0d7de;border-radius:8px}"
     ".git-head summary{cursor:pointer;font-weight:600}"
     ".git-head .how{color:#656d76;font-size:.9em;margin:.4rem 0 0}"
+    ".git-head .by{color:#656d76;font-size:.8em;margin:.3rem 0 0;text-align:right}"
     ".git-foot{max-width:70rem;margin:2rem auto 1.5rem;padding:0 1rem;text-align:center;font:13px/1.6 system-ui,sans-serif;color:#656d76}"
     ".git-nav a,.git-head a,.git-foot a{color:#0969da;text-decoration:none}"
     ".git-nav a:hover,.git-head a:hover,.git-foot a:hover{text-decoration:underline}"
     ".git-nav span{color:#656d76}"
     "@media (prefers-color-scheme:dark){.git-nav{background:#161b22;border-color:#30363d}"
     ".git-head{color:#e6edf3}.git-head details{border-color:#30363d}"
-    ".git-head dt,.git-head .how,.git-nav span,.git-foot{color:#8b949e}"
+    ".git-head dt,.git-head .how,.git-head .by,.git-nav span,.git-foot{color:#8b949e}"
     ".git-nav a,.git-head a,.git-foot a{color:#58a6ff}}"
     "</style>"
 )
@@ -393,7 +393,7 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
             text = (upd or {}).get("summary") or ""
             if text and text not in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
                 by = summary_by((upd or {}).get("summary_model"))
-                by_note = f'<p class="how">要約: {html.escape(by)}</p>' if by else ""
+                by_note = f'<p class="by">{html.escape(by)}</p>' if by else ""
                 summary = (f'<details open><summary>AI による要約</summary>{render_markdown(text)}{by_note}'
                            '<p class="how">AI の要約は誤りを含むことがあります。下の差分、または確認先のページで確かめてください。</p></details>')
             head = (f'{DIFF_MARK}<nav class="git-nav">'

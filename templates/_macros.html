@@ -55,9 +55,11 @@
         <li><a class="site-chip" href="{{ item.url }}" target="_blank" rel="noopener noreferrer" title="{{ item.url }}">{{ item.url|hostname }}</a></li>
       </ul>
       <p class="entry-commit">commit: <a class="commit-badge" href="{{ data_repo_url }}/commit/{{ item.commit_hash }}" target="_blank" rel="noopener noreferrer">{{ item.commit_hash[:7] }}</a></p>
+      {%- if item.summary != initial_summary %}
+      <p class="summary-title">変更の要約</p>{% endif %}
       <div class="summary">{{ item.summary|md }}</div>
       {%- set by = item.summary_model|summary_by %}{% if by and item.summary != initial_summary %}
-      <p class="summary-model" title="この要約を書いたもの">要約: {{ by }}</p>{% endif %}
+      <p class="summary-model" title="この要約を書いたもの">{{ by }}</p>{% endif %}
       {%- set page = item.archives|selectattr('kind', 'equalto', 'page')|first %}
       {% set page_done = page and page.status == 'done' and page.archive_url %}
       {% set page_pending = page and page.status == 'pending' %}
