@@ -136,11 +136,11 @@ for t in ${DEPLOY_TARGETS//,/ }; do
     *) echo "Unknown DEPLOY_TARGETS entry: $t (github-pages, firebase, cloudflare-pages)" >&2; exit 1 ;;
   esac
 done
-# A deploy tool that is not in the image (see INSTALL_FIREBASE / INSTALL_WRANGLER in the Dockerfile) fails now, not after the run.
+# A deploy tool that is not in this image (one image per target: container/Dockerfile --target firebase | cloudflare) fails now, not after the run.
 for t in ${DEPLOY_TARGETS//,/ }; do
   case "$t" in
-    firebase) command -v firebase >/dev/null 2>&1 || { echo "DEPLOY_TARGETS has firebase, but this image was built without firebase-tools: rebuild with --build-arg INSTALL_FIREBASE=1" >&2; exit 1; } ;;
-    cloudflare-pages) command -v wrangler >/dev/null 2>&1 || { echo "DEPLOY_TARGETS has cloudflare-pages, but this image was built without wrangler: rebuild with --build-arg INSTALL_WRANGLER=1" >&2; exit 1; } ;;
+    firebase) command -v firebase >/dev/null 2>&1 || { echo "DEPLOY_TARGETS has firebase, but firebase-tools is not in this image (build container/Dockerfile with --target firebase)" >&2; exit 1; } ;;
+    cloudflare-pages) command -v wrangler >/dev/null 2>&1 || { echo "DEPLOY_TARGETS has cloudflare-pages, but wrangler is not in this image (build container/Dockerfile with --target cloudflare)" >&2; exit 1; } ;;
   esac
 done
 for v in $needed; do

@@ -13,7 +13,7 @@ Cloud Scheduler ──▶ Cloud Run Job (container, asia-northeast1)
 
 > **注意:** この構成は、手元で `docker build` / `docker run` による動作確認をまだしていません。最初の実行は、Cloud Run のログを見ながら進めてください（特に「Firebase CLI がサービスアカウントで認証できるか」）。
 
-構成ファイル: `Dockerfile` / `container/entrypoint.sh` / `container/firebase.json` / `monitoring/*.json`
+構成ファイル: `container/Dockerfile` / `cloudbuild.yaml` / `container/entrypoint.sh` / `container/firebase.json` / `monitoring/*.json`
 
 ## 0. 変数（以降のコマンドで使う）
 
@@ -63,12 +63,22 @@ done
 ```bash
 gcloud artifacts repositories create git --repository-format=docker --location=$REGION
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/git/g-i-t-app:latest
-# Firebase Hosting に公開するので _INSTALL_FIREBASE=1（Cloudflare Pages も使うなら、_INSTALL_WRANGLER=1 も足す）。
-# `--tag` だけだと、ビルド引数を渡せないので、cloudbuild.yaml を使う。初回は Rust のビルドで 10〜20 分かかる
-gcloud builds submit --config cloudbuild.yaml --substitutions _IMAGE=$IMAGE,_INSTALL_FIREBASE=1 .
+# 初回は Rust のビルドで 10〜20 分かかる。_TARGET は、公開先のツールを選ぶ（下の表）
+gcloud builds submit --config cloudbuild.yaml --substitutions _IMAGE=$IMAGE,_TARGET=firebase .
 ```
 
-`firebase-tools` は約 250 MB、`wrangler` は約 170 MB、イメージが大きくなります（既定は、どちらも入れません）。入れ忘れると、`DEPLOY_TARGETS` にその公開先があるジョブは、起動時にエラーで止まります（実行の最後ではなく、最初に分かります）。
+イメージは、**公開先ごとに 1 つ**です（`container/Dockerfile` の `--target`）。`github-pages` への公開は git だけなので、どのイメージでも使えます。
+
+| `_TARGET` | 入るツール | 使える `DEPLOY_TARGETS` | 大きさ（実測の土台 478 MB に加算） |
+|---|---|---|---|
+| `firebase`（既定） | `firebase-tools` | `github-pages`、`firebase` | 約 720 MB |
+| `cloudflare` | `wrangler` | `github-pages`、`cloudflare-pages` | 約 650 MB |
+| `base` | なし | `github-pages` | 約 480 MB |
+
+- **`DEPLOY_TARGETS` に、そのイメージに無い公開先を書くと、起動時にエラーで止まります**（実行の最後ではなく、最初に分かります）。
+- 公開先を Firebase から Cloudflare に切り替えるときは、`_TARGET=cloudflare` でイメージを作り直し、ジョブのイメージと `DEPLOY_TARGETS` を更新します。両方に同時に出す期間は、2 つのイメージを別々のジョブで走らせるか、イメージに両方のツールを入れる必要があります（現状は、片方ずつです）。
+- 大きさは展開後の値です。Artifact Registry の保存容量は、圧縮後で数えられるはずです（無料枠 0.5 GB。push のあとで `gcloud artifacts docker images list` で確認してください）。
+- バージョンを固定するときは、`--substitutions …,_FIREBASE_TOOLS_VERSION=<x.y.z>`（または `_WRANGLER_VERSION`）を足します。固定しないと、ビルドした日の最新版が入ります。
 
 **イメージに入っているのは、ツールと依存だけです**（website-stalker、Node、Python の依存）。`scripts/`・`templates/`・`static/` などの g-i-t-app のコードは、**実行のたびに GitHub（`APP_REPO` の `APP_REF`）から取得します**。コードを変えたときは、push するだけで、次の実行から反映されます。イメージの作り直しが要るのは、`requirements.txt` か `Dockerfile` を変えたときだけです（`requirements.txt` が焼き込んだものと違うと、起動時にエラーで止まります）。
 
@@ -211,10 +221,10 @@ gcloud run jobs create g-i-t-archive --image $IMAGE --region $REGION --args=arch
 ## 手元での確認
 
 ```bash
-docker build -t g-i-t-app .
+docker build -f container/Dockerfile --target firebase -t g-i-t-app:firebase .      # Cloudflare 版は --target cloudflare
 # 作業中のコードで試すときは、-v "$PWD:/app" を付ける（付けないと GitHub の main を取得する）
 cp .env.sample .env      # 値を記入する（.env は git・docker の対象外）
-docker run --rm --env-file .env g-i-t-app          # wslc でも同じ: wslc run --rm --env-file .env g-i-t-app
+docker run --rm --env-file .env g-i-t-app:firebase     # wslc でも同じ: wslc build -f … / wslc run --rm --env-file .env g-i-t-app:firebase
 ```
 
 デプロイ（最後の手順）は、認証がないので失敗します。そこまでの clone・取得・push の動作を確認できます。**これは本物の g-i-t-data に push するので、確認用のリポジトリを `-e DATA_REPO=<owner>/<repo>` で指定してください。**

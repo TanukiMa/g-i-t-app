@@ -1,22 +1,28 @@
-# Cloud Build: builds the image with the deploy tools you need (a plain `gcloud builds submit --tag` cannot pass build args).
-#   gcloud builds submit --config cloudbuild.yaml --substitutions _IMAGE=$IMAGE,_INSTALL_FIREBASE=1 .
-# _INSTALL_FIREBASE=1 : firebase-tools (DEPLOY_TARGETS has "firebase")      about +250 MB
-# _INSTALL_WRANGLER=1 : wrangler (DEPLOY_TARGETS has "cloudflare-pages")    about +170 MB
-# _WS_REV=<sha>       : pin the website-stalker fork to a commit (empty = its current HEAD)
+# Cloud Build: builds container/Dockerfile (a plain `gcloud builds submit --tag` cannot choose the Dockerfile or its target).
+#   gcloud builds submit --config cloudbuild.yaml --substitutions _IMAGE=$IMAGE,_TARGET=firebase .
+# _TARGET  firebase (default)  Firebase Hosting CLI in the image (+ GitHub Pages)
+#          cloudflare          wrangler in the image (+ GitHub Pages)
+#          base                no deploy CLI (GitHub Pages only)
+# Optional pins, for a reproducible rebuild:
+#   _WS_REV=<sha>                  the website-stalker fork at a commit (empty = its current HEAD)
+#   _FIREBASE_TOOLS_VERSION=x.y.z  _WRANGLER_VERSION=x.y.z   (latest = the version of the day of the build)
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
       - build
+      - --file=container/Dockerfile
+      - --target=${_TARGET}
       - --tag=${_IMAGE}
-      - --build-arg=INSTALL_FIREBASE=${_INSTALL_FIREBASE}
-      - --build-arg=INSTALL_WRANGLER=${_INSTALL_WRANGLER}
+      - --build-arg=FIREBASE_TOOLS_VERSION=${_FIREBASE_TOOLS_VERSION}
+      - --build-arg=WRANGLER_VERSION=${_WRANGLER_VERSION}
       - --build-arg=WS_REV=${_WS_REV}
       - .
 images:
   - ${_IMAGE}
 substitutions:
   _IMAGE: ""
-  _INSTALL_FIREBASE: "0"
-  _INSTALL_WRANGLER: "0"
+  _TARGET: firebase
+  _FIREBASE_TOOLS_VERSION: latest
+  _WRANGLER_VERSION: latest
   _WS_REV: ""
 timeout: 2400s   # the first build compiles website-stalker (Rust): 10-20 minutes
