@@ -2,13 +2,12 @@ name: Run G-I-T Archive Worker
 
 on:
   schedule:
-    # Four runs a day, each about 50 minutes after a stalk run of the planned schedule (JST 8:30, 12:30, 16:30, 22:00;
+    # Three runs a day, each about 50 minutes after a stalk run of the planned schedule (JST 7:30, 12:30, 16:30;
     # Cloud Scheduler runs it once the pipeline has moved to Cloud Run, stalk.yml is then retired), so that the pages
-    # found are saved soon after: JST 9:20, 13:20, 17:20, 22:50 = UTC 00:20, 04:20, 08:20, 13:50. Off-peak minutes
+    # found are saved soon after: JST 8:20, 13:20, 17:20 = UTC 23:20 (the day before), 04:20, 08:20. Off-peak minutes
     # (GitHub is busiest at :00/:15/:30/:45). Each run works for up to ARCHIVE_RUNTIME_MIN minutes: about 12 URLs per
     # 15 minutes, so ~48 per run with the S3 keys.
-    - cron: '20 0,4,8 * * *'
-    - cron: '50 13 * * *'
+    - cron: '20 23,4,8 * * *'
   workflow_dispatch:
 
 # Only touches Supabase and the Internet Archive, so it never conflicts with stalk.yml.

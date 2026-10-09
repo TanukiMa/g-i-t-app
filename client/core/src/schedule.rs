@@ -26,13 +26,13 @@ pub struct Schedule {
 
 impl Default for Schedule {
     fn default() -> Self {
-        // 8:30, 12:30, 16:30, 22:00 JST: what the site publishes; used until status.json has been read once
-        Schedule { runs: vec![8 * 60 + 30, 12 * 60 + 30, 16 * 60 + 30, 22 * 60], delay_min: 8, window_min: 25, step_min: 3, offset_min: 540 }
+        // 7:30, 12:30, 16:30 JST: what the site publishes; used until status.json has been read once
+        Schedule { runs: vec![7 * 60 + 30, 12 * 60 + 30, 16 * 60 + 30], delay_min: 8, window_min: 25, step_min: 3, offset_min: 540 }
     }
 }
 
 impl Schedule {
-    /// "8:30・12:30・16:30・22:00"
+    /// "7:30・12:30・16:30"
     pub fn runs_text(&self) -> String {
         self.runs.iter().map(|m| format!("{}:{:02}", m / 60, m % 60)).collect::<Vec<_>>().join("・")
     }

@@ -81,6 +81,7 @@ gcloud builds submit --config cloudbuild.yaml --substitutions _IMAGE=$IMAGE,_TAR
 - **`DEPLOY_TARGETS` に、そのイメージに無い公開先を書くと、起動時にエラーで止まります**（実行の最後ではなく、最初に分かります）。
 - 公開先を Firebase から Cloudflare に切り替えるときは、`_TARGET=cloudflare` でイメージを作り直し、ジョブのイメージと `DEPLOY_TARGETS` を更新します。両方に同時に出す期間は、2 つのイメージを別々のジョブで走らせるか、イメージに両方のツールを入れる必要があります（現状は、片方ずつです）。
 - 大きさは展開後の値です。Artifact Registry の保存容量は、圧縮後で数えられるはずです（無料枠 0.5 GB。push のあとで `gcloud artifacts docker images list` で確認してください）。
+- `gcloud builds submit` が送るのは、**`.gcloudignore` に従った 4 ファイルだけ**です（`cloudbuild.yaml`、`requirements.txt`、`container/Dockerfile`、`container/bootstrap.sh`）。`.dockerignore` は、送るファイルの選択には使われません。この指定が無いと、`client/target` など数 GB と、`.env`（実際のキー）まで送ってしまいます。確認: `gcloud meta list-files-for-upload .`
 - バージョンを固定するときは、`--substitutions …,_FIREBASE_TOOLS_VERSION=<x.y.z>`（または `_WRANGLER_VERSION`）を足します。固定しないと、ビルドした日の最新版が入ります。
 
 **イメージに入っているのは、ツールと依存だけです**（website-stalker、Node、Python の依存）。`scripts/`・`templates/`・`static/` などの g-i-t-app のコードは、**実行のたびに GitHub（`APP_REPO` の `APP_REF`）から取得します**。コードを変えたときは、push するだけで、次の実行から反映されます。イメージの作り直しが要るのは、`requirements.txt` か `Dockerfile` を変えたときだけです（`requirements.txt` が焼き込んだものと違うと、起動時にエラーで止まります）。
@@ -97,17 +98,17 @@ website-stalker のフォークを更新したときだけ、`--no-cache` で作
 gcloud run jobs create g-i-t-stalk \
   --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com \
   --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 3000s \
-  --set-env-vars "^@^FIREBASE_PROJECT=$PROJECT@SITE_BASE_URL=https://$DOMAIN/@DEPLOY_TARGETS=github-pages,firebase@PWA_ENABLED=0" \
+  --set-env-vars "^#^FIREBASE_PROJECT=$WEB#SITE_BASE_URL=https://$DOMAIN/#DEPLOY_TARGETS=github-pages,firebase#PWA_ENABLED=0#SUPABASE_URL=...#WEBSITE_STALKER_FROM=..." \
   --set-secrets GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest,WEBSITE_STALKER_FROM=WEBSITE_STALKER_FROM:latest
 
 gcloud run jobs execute g-i-t-stalk --region $REGION --wait     # 手動で 1 回
 gcloud run jobs executions list --job g-i-t-stalk --region $REGION
 ```
 
-- タイムアウトを **50 分**にしているのは、実行どうしが重ならないようにするためです（1 日 4 回なら、間隔は、4 時間以上あるので、もっと長くしても構いません）（重なると、同じ g-i-t-data に同時に push して競合します）。
-- 環境変数の値にカンマがあるので（`DEPLOY_TARGETS=github-pages,firebase`）、`--set-env-vars` の先頭に **`^@^`**（区切りを `@` に変える記法）を付けています。付けないと、`firebase` が別の変数として解釈されてエラーになります。
+- タイムアウトを **50 分**にしているのは、実行どうしが重ならないようにするためです（1 日 3 回なら、間隔は、4 時間以上あるので、もっと長くしても構いません）（重なると、同じ g-i-t-data に同時に push して競合します）。
+- 環境変数の値にカンマがあるので（`DEPLOY_TARGETS=github-pages,firebase`）、`--set-env-vars` の先頭に **`^#^`**（区切りを `#` に変える記法（`@` は、`WEBSITE_STALKER_FROM` のメールアドレスと衝突するので使えない））を付けています。付けないと、`firebase` が別の変数として解釈されてエラーになります。
 - **`DEPLOY_TARGETS` を指定しないと、既定の `github-pages` だけに出て、Firebase には何も出ません。** 移行の間は `github-pages,firebase` の両方に出し、切り替えが済んだら `firebase` だけにします（6b）。
-- GA4 / Cloudflare のタグ、Gemini のモデル順、フォールバック LLM は、`--set-env-vars` に `GA_MEASUREMENT_ID` などを足して渡します（`docs/wiki/Configuration.md`）。値にカンマが入るもの（`GEMINI_MODELS` など）は、`--set-env-vars "^@^GEMINI_MODELS=a,b,c@KEY=…"` のように区切り文字を変えます。
+- GA4 / Cloudflare のタグ、Gemini のモデル順、フォールバック LLM は、`--set-env-vars` に `GA_MEASUREMENT_ID` などを足して渡します（`docs/wiki/Configuration.md`）。値にカンマが入るもの（`GEMINI_MODELS` など）は、`--set-env-vars "^#^GEMINI_MODELS=a,b,c#KEY=…"` のように区切り文字を変えます。
 - 最初は `--memory 1Gi` で始め、実行のログとメトリクスで足りなければ `2Gi` にします（実測はしていません）。
 
 ## 5b. そのほかのジョブ（同じイメージ、引数だけ違う）
@@ -117,7 +118,7 @@ gcloud run jobs executions list --job g-i-t-stalk --region $REGION
 gcloud run jobs create g-i-t-remake-dashboard \
   --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com --args=remake-dashboard \
   --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 900s \
-  --set-env-vars "^@^FIREBASE_PROJECT=$PROJECT@SITE_BASE_URL=https://$DOMAIN/@DEPLOY_TARGETS=github-pages,firebase@PWA_ENABLED=0" \
+  --set-env-vars "^#^FIREBASE_PROJECT=$WEB#SITE_BASE_URL=https://$DOMAIN/#DEPLOY_TARGETS=github-pages,firebase#PWA_ENABLED=0#SUPABASE_URL=...#WEBSITE_STALKER_FROM=..." \
   --set-secrets GH_PAT=GH_PAT:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest
 
 # 保存済みの要約を作り直す（引数は実行のたびに渡す）
@@ -145,19 +146,17 @@ PROJECT_NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber
 gcloud run jobs add-iam-policy-binding g-i-t-stalk --region $REGION \
   --member=serviceAccount:$SA@$PROJECT.iam.gserviceaccount.com --role=roles/run.invoker
 
-# 1 日 4 回: 朝 8:30、昼 12:30、夕 16:30、夜 22:00（日本時間）。1 本の cron では書けないので、2 つのジョブにする
+# 1 日 3 回: 朝 7:30、昼 12:30、夕 16:30（日本時間）。夜間は動かさない。ジョブは 1 つ（無料枠は 3 ジョブまで）
 URI="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_NUMBER/jobs/g-i-t-stalk:run"
-gcloud scheduler jobs create http g-i-t-stalk-day --location $REGION \
-  --schedule "30 8,12,16 * * *" --time-zone Asia/Tokyo \
-  --http-method POST --uri "$URI" \
-  --oauth-service-account-email $SA@$PROJECT.iam.gserviceaccount.com
-gcloud scheduler jobs create http g-i-t-stalk-night --location $REGION \
-  --schedule "0 22 * * *" --time-zone Asia/Tokyo \
+gcloud scheduler jobs create http g-i-t-stalk --location $REGION \
+  --schedule "30 7,12,16 * * *" --time-zone Asia/Tokyo \
   --http-method POST --uri "$URI" \
   --oauth-service-account-email $SA@$PROJECT.iam.gserviceaccount.com
 ```
 
-スケジュールは、1 日 4 回（日本時間 8:30・12:30・16:30・22:00）です。**アーカイブ（`archive.yml`）は、Cloud Run に移さず、GitHub Actions のままにします**（約 50 分後の 4 回、JST 9:20・13:20・17:20・22:50）。1 件ごとに 15〜60 秒の待ちがあり、Cloud Run では、待ちも課金されるためです。GitHub Actions の `stalk.yml`（`cron` は UTC で書く）とは、別に、Cloud Scheduler 側で時刻帯を指定できます。Cloud Scheduler は、時刻どおりに起動します（GitHub の `schedule` のような遅れは、ありません）。
+`feeds/status.json` の実行時刻は、ジョブの環境変数 `STALK_RUNS`（例: `07:30,12:30,16:30`）か、`scripts/common.py` の既定値です。Cloud Scheduler の時刻と合わせてください。
+
+スケジュールは、1 日 3 回（日本時間 7:30・12:30・16:30）です。Cloud Scheduler の無料枠は「ジョブが 3 つまで」で、実行回数の上限ではありません。**アーカイブ（`archive.yml`）は、Cloud Run に移さず、GitHub Actions のままにします**（約 50 分後の 3 回、JST 8:20・13:20・17:20）。1 件ごとに 15〜60 秒の待ちがあり、Cloud Run では、待ちも課金されるためです。GitHub Actions の `stalk.yml`（`cron` は UTC で書く）とは、別に、Cloud Scheduler 側で時刻帯を指定できます。Cloud Scheduler は、時刻どおりに起動します（GitHub の `schedule` のような遅れは、ありません）。
 
 ```bash
 gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
@@ -165,7 +164,7 @@ gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
 
 ## 6b. 公開先を選ぶ（`DEPLOY_TARGETS`）
 
-同じイメージが、次の公開先のどれにでも（複数同時にも）デプロイできます。`DEPLOY_TARGETS=firebase,cloudflare-pages` のように、カンマ区切りで指定します（値にカンマが入るので、`--set-env-vars "^@^DEPLOY_TARGETS=firebase,cloudflare-pages@KEY=値"` のように、区切り文字を `@` に変えて渡します）（既定は `github-pages`）。各公開先は独立に実行され、1 つ失敗しても残りは実行されます（終了コードは失敗になります）。
+同じイメージが、次の公開先のどれにでも（複数同時にも）デプロイできます。`DEPLOY_TARGETS=firebase,cloudflare-pages` のように、カンマ区切りで指定します（値にカンマが入るので、`--set-env-vars "^#^DEPLOY_TARGETS=firebase,cloudflare-pages#KEY=値"` のように、区切り文字を `@` に変えて渡します）（既定は `github-pages`）。各公開先は独立に実行され、1 つ失敗しても残りは実行されます（終了コードは失敗になります）。
 
 | 値 | 公開先 | 必要な設定 |
 |---|---|---|

@@ -49,7 +49,7 @@ fn status_json_rejects_what_it_cannot_use() {
 #[test]
 fn the_default_schedule_is_the_published_one() {
     let sch = Schedule::default();
-    assert_eq!(sch.runs_text(), "8:30・12:30・16:30・22:00");
+    assert_eq!(sch.runs_text(), "7:30・12:30・16:30");
 }
 
 #[test]
@@ -60,16 +60,16 @@ fn a_window_opens_after_the_run_and_closes() {
     assert_eq!(sch.current_run(jst("2026-10-09 13:03")), Some(jst("2026-10-09 12:30")));
     assert_eq!(sch.current_run(jst("2026-10-09 13:04")), None);
     assert_eq!(sch.next_window_start(jst("2026-10-09 13:10")), jst("2026-10-09 16:38"));
-    assert_eq!(sch.next_window_start(jst("2026-10-09 22:50")), jst("2026-10-10 08:38")); // over midnight
-    assert_eq!(sch.latest_window_start(jst("2026-10-09 07:00")), jst("2026-10-08 22:08")); // yesterday's last window
+    assert_eq!(sch.next_window_start(jst("2026-10-09 22:50")), jst("2026-10-10 07:38")); // over midnight: no run at night
+    assert_eq!(sch.latest_window_start(jst("2026-10-09 07:00")), jst("2026-10-08 16:38")); // yesterday's last window
 }
 
 #[test]
 fn inside_a_window_it_looks_every_few_minutes_until_the_run_is_seen_to_be_finished() {
     let sch = Schedule::default();
     let now = jst("2026-10-09 12:40");
-    // the last build is from the 8:30 run: this run has not finished
-    assert_eq!(sch.next_check(now, jst("2026-10-09 08:41")), now + 3 * MIN);
+    // the last build is from the 7:30 run: this run has not finished
+    assert_eq!(sch.next_check(now, jst("2026-10-09 07:41")), now + 3 * MIN);
     // the status now says it was built at 12:41 (after the 12:30 start): done, wait for the 16:30 window
     assert_eq!(sch.next_check(now, jst("2026-10-09 12:41")), jst("2026-10-09 16:38"));
     // outside any window

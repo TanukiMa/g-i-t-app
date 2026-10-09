@@ -1,0 +1,10 @@
+# What `gcloud builds submit` uploads (it reads this file, not .dockerignore). The image build needs only these files:
+#   container/Dockerfile, container/bootstrap.sh, requirements.txt (and cloudbuild.yaml, which Cloud Build reads).
+# Everything else is left out on purpose: client/target is several GB, and .env holds real keys.
+*
+!cloudbuild.yaml
+!requirements.txt
+!container
+container/*
+!container/Dockerfile
+!container/bootstrap.sh

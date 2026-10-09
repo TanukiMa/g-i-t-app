@@ -176,7 +176,7 @@ def stalk_runs() -> list:
 def build_status(sites: list, generated: str) -> str:
     """feeds/status.json: the smallest thing a client app has to fetch to learn whether anything changed.
 
-    {"v":1,"generated":"<UTC>","tz":"Asia/Tokyo","utcOffsetMin":540,"runs":["08:30",...],"delayMin":8,"windowMin":25,
+    {"v":1,"generated":"<UTC>","tz":"Asia/Tokyo","utcOffsetMin":540,"runs":["07:30",...],"delayMin":8,"windowMin":25,
      "sites":{slug: <7-character hash of the site's newest real update>}}
     Sites without a real update (only the first snapshot) are left out, like in their Atom feed."""
     heads = {}
