@@ -1,0 +1,22 @@
+# Cloud Build: builds the image with the deploy tools you need (a plain `gcloud builds submit --tag` cannot pass build args).
+#   gcloud builds submit --config cloudbuild.yaml --substitutions _IMAGE=$IMAGE,_INSTALL_FIREBASE=1 .
+# _INSTALL_FIREBASE=1 : firebase-tools (DEPLOY_TARGETS has "firebase")      about +250 MB
+# _INSTALL_WRANGLER=1 : wrangler (DEPLOY_TARGETS has "cloudflare-pages")    about +170 MB
+# _WS_REV=<sha>       : pin the website-stalker fork to a commit (empty = its current HEAD)
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_IMAGE}
+      - --build-arg=INSTALL_FIREBASE=${_INSTALL_FIREBASE}
+      - --build-arg=INSTALL_WRANGLER=${_INSTALL_WRANGLER}
+      - --build-arg=WS_REV=${_WS_REV}
+      - .
+images:
+  - ${_IMAGE}
+substitutions:
+  _IMAGE: ""
+  _INSTALL_FIREBASE: "0"
+  _INSTALL_WRANGLER: "0"
+  _WS_REV: ""
+timeout: 2400s   # the first build compiles website-stalker (Rust): 10-20 minutes
