@@ -42,7 +42,7 @@ mode_help() {
     stalk) cat <<'HELP'
 stalk: the full pipeline (fetch, commit, push, database, AI summaries, dashboard, deploy).
 Needs: GH_PAT SUPABASE_URL SUPABASE_KEY SITE_BASE_URL WEBSITE_STALKER_FROM, GEMINI_API_KEY (summaries),
-       and what DEPLOY_TARGETS needs (github-pages | firebase | cloudflare-pages).
+       and what DEPLOY_TARGETS needs (github-pages | github-pages-redirect | firebase | cloudflare-pages).
 Options (environment): STALK_BUDGET_MIN SUMMARY_WORKERS GEMINI_MODELS DATA_REPO APP_REF PWA_ENABLED ...
 HELP
     ;;
@@ -123,6 +123,9 @@ fi
 
 # Where the dashboard is published: a comma separated list, every target is deployed independently.
 #   github-pages      force-push data/public to the gh-pages branch of the data repository (the former stalk.yml step)
+#   github-pages-redirect  the same branch, but every HTML page is a "we have moved" stub that sends the visitor to
+#                     SITE_BASE_URL (the new address; scripts/make_redirect_site.py); feeds, status.json and
+#                     search.json stay as they are, so feed readers and installed client apps keep working
 #   firebase          Firebase Hosting                    needs FIREBASE_PROJECT
 #   cloudflare-pages  Cloudflare Pages (wrangler)         needs CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_PAGES_PROJECT
 DEPLOY_TARGETS="${DEPLOY_TARGETS:-github-pages}"
@@ -131,9 +134,10 @@ needed="GH_PAT SUPABASE_URL SUPABASE_KEY SITE_BASE_URL"
 for t in ${DEPLOY_TARGETS//,/ }; do
   case "$t" in
     github-pages) ;;
+    github-pages-redirect) ;;
     firebase) needed="$needed FIREBASE_PROJECT" ;;
     cloudflare-pages) needed="$needed CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_PAGES_PROJECT" ;;
-    *) echo "Unknown DEPLOY_TARGETS entry: $t (github-pages, firebase, cloudflare-pages)" >&2; exit 1 ;;
+    *) echo "Unknown DEPLOY_TARGETS entry: $t (github-pages, github-pages-redirect, firebase, cloudflare-pages)" >&2; exit 1 ;;
   esac
 done
 # A deploy tool that is not in this image (one image per target: container/Dockerfile --target firebase | cloudflare) fails now, not after the run.
@@ -176,13 +180,26 @@ else
   echo "g-i-t-data .git size: $(du -sm data/.git | cut -f1) MB"
 fi
 
-deploy_github_pages() {
-  local dir=/tmp/ghp
-  rm -rf "$dir" && mkdir -p "$dir" && cp -a data/public/. "$dir/" && touch "$dir/.nojekyll" || return 1
+# Publish a directory as the gh-pages branch of the data repository: a single commit, like force_orphan.
+push_gh_pages() {
+  local dir="$1"
+  touch "$dir/.nojekyll" &&
   git -C "$dir" init -q -b gh-pages &&
   git -C "$dir" add -A &&
   git -C "$dir" commit -q -m "Deploy $(date -u +%Y-%m-%dT%H:%M:%SZ)" &&
-  git -C "$dir" push -q --force "https://github.com/${DATA_REPO}.git" gh-pages:gh-pages   # a single commit, like force_orphan
+  git -C "$dir" push -q --force "https://github.com/${DATA_REPO}.git" gh-pages:gh-pages
+}
+
+deploy_github_pages() {
+  local dir=/tmp/ghp
+  rm -rf "$dir" && mkdir -p "$dir" && cp -a data/public/. "$dir/" && push_gh_pages "$dir"
+}
+
+# The old address after the move: stubs that send the visitor to SITE_BASE_URL (which must be the NEW address).
+deploy_github_pages_redirect() {
+  local dir=/tmp/ghp-redirect
+  python "$APP_DIR/scripts/make_redirect_site.py" --src data/public --dst "$dir" --target "$SITE_BASE_URL" \
+    --strip-prefix "/${DATA_REPO##*/}" && push_gh_pages "$dir"
 }
 
 deploy_firebase() {

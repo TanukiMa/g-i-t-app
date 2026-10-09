@@ -169,6 +169,7 @@ gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
 | 値 | 公開先 | 必要な設定 |
 |---|---|---|
 | `github-pages` | `g-i-t-data` の `gh-pages` ブランチ（従来どおり。1 コミットに保つ） | なし（`GH_PAT` を使う） |
+| `github-pages-redirect` | 同じ `gh-pages` ブランチを、**新しい場所へ転送するページ**にする（独自ドメインへの移行後の旧 URL 用） | `SITE_BASE_URL` に**新しいアドレス**を設定する（`github.io` を指すとエラー） |
 | `firebase` | Firebase Hosting | `FIREBASE_PROJECT`（サービスアカウントに `roles/firebasehosting.admin`） |
 | `cloudflare-pages` | Cloudflare Pages（`wrangler pages deploy`） | `CLOUDFLARE_API_TOKEN`（Pages の編集権限のみ）、`CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_PAGES_PROJECT`（先に `wrangler pages project create <名前>` で作成） |
 
