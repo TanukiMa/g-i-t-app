@@ -563,34 +563,68 @@ def asset_version(static_dir: str) -> str:
     return digest.hexdigest()[:10]
 
 
+def pwa_passphrase_hash() -> str:
+    """PWA_PASSPHRASE_HASH ("pbkdf2$sha256$<iterations>$<salt>$<hash>", from scripts/pwa-passphrase.py); "" when missing or malformed."""
+    value = os.environ.get("PWA_PASSPHRASE_HASH", "").strip()
+    return value if re.fullmatch(r"pbkdf2\$sha256\$\d{4,7}\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+", value) else ""
+
+
+def pwa_mode() -> str:
+    """PWA_ENABLED: "on" (unset, 1), "off" (0 / false / no / off) or "optin" (the app is off for visitors; whoever opens
+    <site>/?pwa and types the passphrase switches it on in their own browser). optin needs PWA_PASSPHRASE_HASH; without it the app is off."""
+    value = os.environ.get("PWA_ENABLED", "1").strip().lower()
+    if value in ("0", "false", "no", "off"):
+        return "off"
+    if value == "optin":
+        if pwa_passphrase_hash():
+            return "optin"
+        print("WARNING: PWA_ENABLED=optin needs a valid PWA_PASSPHRASE_HASH (scripts/pwa-passphrase.py): the app stays off.")
+        return "off"
+    return "on"
+
+
 def pwa_enabled() -> bool:
-    """PWA_ENABLED=0 (also false / no / off) switches the installable app off; everything else leaves it on."""
-    return os.environ.get("PWA_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+    """True only in mode "on": the manifest is in every page."""
+    return pwa_mode() == "on"
 
 
-def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: str = "", pwa: bool = True):
+def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: str = "", mode: str = "on"):
     """Copy manifest.webmanifest / sw.js to the site root (a service worker only controls its own directory).
 
-    With pwa=False the manifest is not published (and removed when an earlier build left one) and sw.js is the retiring
-    worker (static/sw-retire.js): browsers that installed the app earlier fetch it and clean themselves up.
+    mode "on":    manifest.webmanifest and sw.js (the full worker).
+    mode "off":   no manifest (removed when an earlier build left one); sw.js is the retiring worker (static/sw-retire.js):
+                  browsers that installed the app earlier fetch it and clean themselves up.
+    mode "optin": the manifest is published (the pages do not link it; static/pwa.js adds the link in a browser that was
+                  switched on), sw.js is the retiring worker as in "off", and the full worker is sw-app.js, which only
+                  such a browser registers.
     """
     if not os.path.isdir(src_dir):
         return
+
+    def render(path: str) -> str:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().replace("__BUILD_ID__", build_id).replace("__ASSET_VERSION__", version)
+
     for name in os.listdir(src_dir):
         path = os.path.join(src_dir, name)
         if not os.path.isfile(path):
             continue
-        if not pwa and name == "manifest.webmanifest":
+        if mode == "off" and name == "manifest.webmanifest":
             stale = os.path.join(public_dir, name)
             if os.path.isfile(stale):
                 os.remove(stale)
                 print(f"Removed {stale} (PWA_ENABLED=0)")
             continue
-        if not pwa and name == "sw.js":
-            path = os.path.join(os.path.dirname(src_dir), "sw-retire.js")
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read().replace("__BUILD_ID__", build_id).replace("__ASSET_VERSION__", version)
-        write(os.path.join(public_dir, name), text)
+        if mode != "on" and name == "sw.js":
+            write(os.path.join(public_dir, "sw.js"), render(os.path.join(os.path.dirname(src_dir), "sw-retire.js")))
+            if mode == "optin":
+                write(os.path.join(public_dir, "sw-app.js"), render(path))
+            continue
+        write(os.path.join(public_dir, name), render(path))
+    stale_app = os.path.join(public_dir, "sw-app.js")
+    if mode != "optin" and os.path.isfile(stale_app):
+        os.remove(stale_app)
+        print(f"Removed {stale_app} (PWA_ENABLED is not optin)")
 
 
 def main():
@@ -631,7 +665,9 @@ def main():
         site_name=lambda slug: names.get(slug, slug),
         site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
     )
-    env.globals.update(pwa_enabled=pwa_enabled(), initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
+    mode = pwa_mode()
+    env.globals.update(pwa_enabled=(mode == "on"), pwa_mode=mode, pwa_hash=pwa_passphrase_hash() if mode == "optin" else "",
+                       initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
                        analytics=analytics_settings())
 
     print(f"Decorated {decorate_diff_pages(public_dir, names, updates)} diff page(s).")
@@ -653,7 +689,7 @@ def main():
         shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("root"))
         publish_root_files(os.path.join(static_dir, "root"), public_dir, build_id, env.globals["asset_version"],
-                           env.globals["pwa_enabled"])
+                           env.globals["pwa_mode"])
     write(os.path.join(public_dir, "offline.html"), env.get_template("offline.html").render())
 
     # Three views of the latest part of the timeline (GitHub-style / dashboard / minimal)

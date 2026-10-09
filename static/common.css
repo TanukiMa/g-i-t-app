@@ -127,6 +127,12 @@ h1 .follow-btn { font-size: 0.8em; }
 .gsearch-chip-x { color: var(--muted); padding-left: 0.4em !important; padding-right: 0.6em !important; }
 .gsearch-badge, .gsearch-new { background: #dc2626; color: #fff; font-size: 0.75em; font-weight: 700; border-radius: 999px; padding: 0 0.5em; line-height: 1.6; }
 .gsearch-badge { margin-right: 0.2em; }
+.pwa-unlock { position: fixed; right: 1rem; bottom: 1rem; z-index: 50; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+  max-width: calc(100vw - 2rem); padding: 0.6rem 0.8rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 0.6em;
+  background: var(--bg, Canvas); color: inherit; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
+.pwa-unlock input { font: inherit; padding: 0.25em 0.5em; min-width: 9rem; }
+.pwa-unlock button { font: inherit; cursor: pointer; padding: 0.25em 0.7em; }
+.pwa-unlock-msg { flex-basis: 100%; color: var(--muted); }
 .gsearch mark { background: rgba(255, 213, 0, 0.45); color: inherit; border-radius: 2px; padding: 0 1px; }
 
 /* ---- full-width layout: use the whole browser width; cards flow into as many columns as fit ---- */

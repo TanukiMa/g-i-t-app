@@ -15,13 +15,13 @@
 <meta name="apple-mobile-web-app-title" content="G醫t" />
 {% endif %}{% block head_extra %}{% endblock %}
 <script src="{{ root }}assets/app.js?v={{ asset_version }}" defer data-root="{{ root }}"></script>
-{% if pwa_enabled %}<script src="{{ root }}assets/pwa.js?v={{ asset_version }}" defer data-root="{{ root }}"></script>
+{% if pwa_mode in ('on', 'optin') %}<script src="{{ root }}assets/pwa.js?v={{ asset_version }}" defer data-root="{{ root }}" data-mode="{{ pwa_mode }}"{% if pwa_mode == 'optin' %} data-hash="{{ pwa_hash }}"{% endif %}></script>
 {% endif %}{% if analytics.enabled %}<script src="{{ root }}assets/analytics.js?v={{ asset_version }}" defer data-ga="{{ analytics.ga_id }}" data-cf="{{ analytics.cf_token }}"></script>{% endif %}
 </head>
 <body class="style-{{ style|default('github') }}">
 <main>
   {% block content %}{% endblock %}
 </main>
-<p class="legal"><a href="{{ root }}privacy.html">プライバシーとアクセス解析について</a>{% if pwa_enabled %}<span data-install hidden> ・ <button type="button" class="install-btn" data-install-button>📲 アプリとしてインストール</button></span>{% endif %}</p>
+<p class="legal"><a href="{{ root }}privacy.html">プライバシーとアクセス解析について</a>{% if pwa_mode in ('on', 'optin') %}<span data-install hidden> ・ <button type="button" class="install-btn" data-install-button>📲 アプリとしてインストール</button></span>{% endif %}</p>
 </body>
 </html>
