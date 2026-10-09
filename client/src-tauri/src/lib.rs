@@ -1,11 +1,12 @@
 //! G醫t client (Tauri 2). A thin shell around `git_core`: it keeps the state on this device, checks the feeds of the
 //! followed sites on a timer, shows the OS notifications and offers the settings window. Nothing is sent anywhere.
 //!
-//! Desktop (Windows / macOS): tray icon, check on a timer, start at login. Mobile: the same core and screen; what happens
+//! Desktop (Windows / macOS): tray icon, looking for news after the runs of the pipeline (not every few minutes: see
+//! git_core::schedule), start at login. Mobile: the same core and screen; what happens
 //! while the app is closed is decided by the OS (see client/README.md).
 
 use git_core::feed::{parse_follow_input, Site};
-use git_core::poller::{poll_once, refresh_sites, HttpFetcher, Notice};
+use git_core::poller::{next_check_ms, poll_scheduled, refresh_sites, HttpFetcher, Notice};
 use git_core::state::{self, Recent, State};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -49,7 +50,7 @@ fn show_notice(app: &AppHandle, n: &Notice) {
 fn check(app: &AppHandle, shared: &Shared) {
     let mut polled = shared.state.lock().unwrap().clone();
     let fetcher = HttpFetcher::new();
-    let _ = poll_once(&mut polled, &fetcher, &mut |n| show_notice(app, n), now_ms());
+    let _ = poll_scheduled(&mut polled, &fetcher, &mut |n| show_notice(app, n), now_ms());
     let snapshot = {
         let mut s = shared.state.lock().unwrap();
         s.merge_poll(polled);
@@ -72,6 +73,20 @@ struct View {
     open_at_login: bool,
     last_check: i64,
     last_error: String,
+    /// When the next look is due (Unix ms).
+    next_check: i64,
+    /// True: the site publishes status.json and the app looks after the runs; false: every `interval_min` minutes.
+    status_mode: bool,
+    schedule_text: String,
+}
+
+fn schedule_text(s: &State) -> String {
+    if s.status_mode {
+        let c = &s.schedule;
+        format!("定時: {}（日本時間）の約 {} 分後から {} 分間、{} 分おきに確認します。それ以外の時間は確認しません。", c.runs_text(), c.delay_min, c.window_min, c.step_min)
+    } else {
+        format!("このサイトは定時の情報を出していないので、{} 分おきに確認します。", s.interval_min)
+    }
 }
 
 fn view(app: &AppHandle, s: &State) -> View {
@@ -92,6 +107,9 @@ fn view(app: &AppHandle, s: &State) -> View {
         open_at_login,
         last_check: s.last_check,
         last_error: s.last_error.clone(),
+        next_check: next_check_ms(s, now_ms()),
+        status_mode: s.status_mode,
+        schedule_text: schedule_text(s),
     }
 }
 
@@ -127,6 +145,7 @@ fn set_follow(app: AppHandle, shared: tauri::State<'_, SharedState>, slugs: Vec<
     #[cfg(desktop)]
     desktop::refresh_tray(&app, &s);
     let _ = &app;
+    let _ = shared.wake.lock().unwrap().send(()); // remember the newly followed sites now, not at the next window
     follow
 }
 
@@ -149,6 +168,7 @@ fn import_follow(app: AppHandle, shared: tauri::State<'_, SharedState>, text: St
     #[cfg(desktop)]
     desktop::refresh_tray(&app, &s);
     let _ = &app;
+    let _ = shared.wake.lock().unwrap().send(());
     Imported { added: add.len(), follow: s.follow.clone() }
 }
 
@@ -159,11 +179,7 @@ fn set_options(app: AppHandle, shared: tauri::State<'_, SharedState>, base_url: 
         let next = state::normalize_base(&u)?;
         if next != s.base_url {
             s.base_url = next; // another site: start fresh
-            s.sites.clear();
-            s.sites_at = 0;
-            s.seen.clear();
-            s.etags.clear();
-            s.recent.clear();
+            s.forget_site_data();
         }
     }
     if let Some(m) = interval_min {
@@ -195,20 +211,50 @@ fn open_external(app: AppHandle, url: String) {
     open_url(&app, &url);
 }
 
-/// The checking thread: waits for the interval (or a wake-up from "check now"), then checks.
+/// Waits until `target_ms` on the wall clock (so a computer that slept wakes up late, not never) or until somebody wakes
+/// the thread ("check now", a changed follow list or option). True: it was woken.
+fn wait_until(rx: &std::sync::mpsc::Receiver<()>, target_ms: i64) -> bool {
+    loop {
+        let left = target_ms - now_ms();
+        if left <= 0 {
+            return false;
+        }
+        match rx.recv_timeout(Duration::from_millis(left.min(30_000) as u64)) {
+            Ok(()) => {
+                while rx.try_recv().is_ok() {} // several wake-ups at once (many sites ticked) are one check
+                return true;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                std::thread::sleep(Duration::from_secs(30));
+            }
+        }
+    }
+}
+
+/// 0 to 45 seconds, different on every computer and every time: thousands of apps must not ask in the same second.
+fn jitter_ms() -> i64 {
+    let n = (now_ms() as u64) ^ (std::process::id() as u64).wrapping_mul(2_654_435_761);
+    (n.wrapping_mul(6_364_136_223_846_793_005) >> 40) as i64 % 45_000
+}
+
+/// The checking thread. It looks for news after the runs of the pipeline (git_core::schedule): in a short window after
+/// each run, every few minutes until the run is seen to be finished. Right after the start, after a wake-up (check now,
+/// a changed follow list) and when a window was missed (the app was closed, the computer asleep) it looks at once.
 fn spawn_checker(app: AppHandle, shared: SharedState, rx: std::sync::mpsc::Receiver<()>) {
     std::thread::spawn(move || {
-        let mut wait = Duration::from_secs(10); // the first check shortly after the start
+        let mut target = now_ms() + 10_000; // the first look shortly after the start
         loop {
-            let manual = matches!(rx.recv_timeout(wait), Ok(()));
-            let (interval, follows) = {
-                let s = shared.state.lock().unwrap();
-                (Duration::from_secs(60 * s.interval_min.clamp(5, 240) as u64), !s.follow.is_empty())
-            };
+            let manual = wait_until(&rx, target);
+            let follows = !shared.state.lock().unwrap().follow.is_empty();
             if follows || manual {
                 check(&app, &shared);
             }
-            wait = interval;
+            let at = {
+                let s = shared.state.lock().unwrap();
+                if s.follow.is_empty() { now_ms() + 10 * 60_000 } else { next_check_ms(&s, now_ms()) }
+            };
+            target = at + jitter_ms();
         }
     });
 }
@@ -230,6 +276,7 @@ mod desktop {
 
     fn build_menu(app: &AppHandle, s: &State) -> tauri::Result<Menu<tauri::Wry>> {
         let when = if s.last_check == 0 { "まだ確認していません".to_string() } else { format!("最終確認: {}", format_local(s.last_check)) };
+        let next = if s.follow.is_empty() { "次回の確認: （サイトを選んでください）".to_string() } else { format!("次回の確認: {}", format_local(next_check_ms(s, now_ms()))) };
         let mut recent_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
         for (i, r) in s.recent.iter().take(8).enumerate() {
             let label = format!("{}  {}", r.name, r.time);
@@ -243,6 +290,7 @@ mod desktop {
             &[
                 &MenuItem::with_id(app, "info", format!("フォロー中: {} サイト", s.follow.len()), false, None::<&str>)?,
                 &MenuItem::with_id(app, "when", when, false, None::<&str>)?,
+                &MenuItem::with_id(app, "next", next, false, None::<&str>)?,
                 &PredefinedMenuItem::separator(app)?,
                 &MenuItem::with_id(app, "check", "今すぐ確認", true, None::<&str>)?,
                 &recent,

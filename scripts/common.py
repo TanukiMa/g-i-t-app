@@ -18,6 +18,12 @@ SITE_PAGE = "history.html"
 # Absolute base URL of the published dashboard (needed for Atom feeds). Override with SITE_BASE_URL.
 SITE_BASE_URL = "https://tanukima.github.io/g-i-t-data/"
 
+# When the pipeline runs (JST, "HH:MM,HH:MM,..."): published in feeds/status.json so that the client apps look for news
+# shortly after a run instead of every 15 minutes. Cloud Scheduler decides the real times; keep this in step with it.
+STALK_RUNS = "08:30,12:30,16:30,22:00"
+STATUS_DELAY_MIN = 8     # a run is usually finished this many minutes after its start ...
+STATUS_WINDOW_MIN = 25   # ... and the client looks for news during this many minutes after that
+
 TIMELINE_LIMIT = 200   # entries on index / dashboard / minimal; older ones live in site/week/month pages
 FEED_LIMIT_ALL = 100   # entries in the combined Atom feed
 FEED_LIMIT_SITE = 50   # entries in per-site / per-tag Atom feeds

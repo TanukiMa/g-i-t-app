@@ -7,7 +7,7 @@
         "width": 12,
         "height": 5,
         "widget": {
-          "title": "1日の送信量（バイト）／無料枠 360 MB・警告 300 MB",
+          "title": "1日の送信量（バイト）／月 10 GB の枠の日割り 約 333 MB・警告 300 MB",
           "xyChart": {
             "dataSets": [
               {
@@ -26,7 +26,7 @@
             ],
             "thresholds": [
               { "label": "警告 300 MB", "value": 314572800, "color": "YELLOW", "direction": "ABOVE" },
-              { "label": "無料枠 360 MB", "value": 377487360, "color": "RED", "direction": "ABOVE" }
+              { "label": "月 10 GB の日割り 約 333 MB", "value": 333333333, "color": "RED", "direction": "ABOVE" }
             ],
             "yAxis": { "scale": "LINEAR" }
           }

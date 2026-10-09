@@ -4,4 +4,5 @@
 
 pub mod feed;
 pub mod poller;
+pub mod schedule;
 pub mod state;

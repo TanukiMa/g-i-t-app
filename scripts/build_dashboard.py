@@ -13,8 +13,9 @@ from urllib.parse import urlparse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
-from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, SUMMARY_FAILED,
-                    SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT, LEGACY_SUMMARY_INITIAL)
+from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, STALK_RUNS, STATUS_DELAY_MIN,
+                    STATUS_WINDOW_MIN, SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT,
+                    LEGACY_SUMMARY_INITIAL)
 from provision import config_problems, configured_sites
 
 try:
@@ -163,6 +164,39 @@ def build_search_index(sites: list, updates: list) -> str:
     return json.dumps({"v": 1,
                        "sites": [[s["slug"], s["name"], s.get("url", ""), s.get("tags", [])] for s in sites],
                        "updates": rows}, ensure_ascii=False, separators=(",", ":"))
+
+
+def stalk_runs() -> list:
+    """The run times (JST "HH:MM") from STALK_RUNS (env or common.py); entries that are not HH:MM are ignored."""
+    text = os.environ.get("STALK_RUNS") or STALK_RUNS
+    runs = [r.strip() for r in text.split(",") if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", r.strip())]
+    return sorted(set(runs)) or sorted(set(STALK_RUNS.split(",")))
+
+
+def build_status(sites: list, generated: str) -> str:
+    """feeds/status.json: the smallest thing a client app has to fetch to learn whether anything changed.
+
+    {"v":1,"generated":"<UTC>","tz":"Asia/Tokyo","utcOffsetMin":540,"runs":["08:30",...],"delayMin":8,"windowMin":25,
+     "sites":{slug: <7-character hash of the site's newest real update>}}
+    Sites without a real update (only the first snapshot) are left out, like in their Atom feed."""
+    heads = {}
+    for s in sites:
+        real = next((u for u in s.get("updates", []) if u.get("summary") != SUMMARY_INITIAL), None)
+        if real and real.get("commit_hash"):
+            heads[s["slug"]] = str(real["commit_hash"])[:7]
+    return json.dumps({"v": 1, "generated": generated, "tz": "Asia/Tokyo", "utcOffsetMin": 540, "runs": stalk_runs(),
+                       "delayMin": int(os.environ.get("STATUS_DELAY_MIN") or STATUS_DELAY_MIN),
+                       "windowMin": int(os.environ.get("STATUS_WINDOW_MIN") or STATUS_WINDOW_MIN), "sites": heads},
+                      ensure_ascii=False, separators=(",", ":"))
+
+
+def previous_generated(path: str):
+    """The `generated` of the status.json that is already in public/ (None when there is none)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f).get("generated")
+    except (OSError, ValueError):
+        return None
 
 
 def build_site_infos(configured: list, updates: list) -> list:
@@ -667,6 +701,12 @@ def main():
 
     # Full-text search index (loaded by assets/app.js when the visitor starts searching)
     write(os.path.join(public_dir, "search.json"), build_search_index(sites, updates))
+
+    # feeds/status.json: what the client apps poll (one small file instead of one feed per followed site).
+    # A rebuild without a run (--no-push) keeps the old time: "generated" tells a client that a RUN has finished.
+    status_path = os.path.join(public_dir, "feeds", "status.json")
+    generated_utc = (previous_generated(status_path) if args.no_push else None) or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    write(status_path, build_status(sites, generated_utc))
 
     # Atom feeds: all sites, per site, per tag
     write(os.path.join(public_dir, "feeds", "all.xml"),

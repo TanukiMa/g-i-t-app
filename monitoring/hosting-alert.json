@@ -23,6 +23,6 @@
   "alertStrategy": { "autoClose": "86400s" },
   "documentation": {
     "mimeType": "text/markdown",
-    "content": "Firebase Hosting の無料枠は 1 日 360 MB です。コンソールの Hosting > 使用状況で内訳を確認してください。"
+    "content": "Firebase Hosting の転送量の無料枠は月 10 GB（1 日あたりの目安は約 333 MB）です。直近 24 時間の送信量が 300 MB を超えました。このペースが続くと月の枠を超えます。コンソールの Hosting > 使用状況で、今月の累計と内訳を確認してください。"
   }
 }

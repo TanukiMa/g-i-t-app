@@ -10,7 +10,10 @@
   const when = (ms) => (ms ? new Date(ms).toLocaleString() : "まだ確認していません");
 
   function statusLine(v) {
-    $("status").textContent = `フォロー中 ${v.follow.length} サイト ・ 最終確認 ${when(v.lastCheck)}` + (v.lastError ? ` ・ 注意: ${v.lastError}` : "");
+    $("status").textContent = `フォロー中 ${v.follow.length} サイト ・ 最終確認 ${when(v.lastCheck)}`
+      + (v.follow.length ? ` ・ 次回 ${new Date(v.nextCheck).toLocaleString()}` : "")
+      + (v.lastError ? ` ・ 注意: ${v.lastError}` : "");
+    $("scheduleNote").textContent = v.scheduleText;
   }
 
   function renderRecent(list) {

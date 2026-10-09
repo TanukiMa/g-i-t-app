@@ -1,6 +1,7 @@
 //! The client's own small database: one JSON file in the app's data folder. Nothing is sent anywhere.
 
 use crate::feed::Site;
+use crate::schedule::Schedule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -42,6 +43,17 @@ pub struct State {
     pub last_check: i64,
     pub last_error: String,
     pub recent: Vec<Recent>,
+    /// True while the site publishes feeds/status.json: the app then looks only after the runs (see schedule.rs).
+    /// False (an older site, or not read yet): every `interval_min` minutes, all followed feeds, as before.
+    pub status_mode: bool,
+    pub status_etag: String,
+    /// The last status.json: slug -> newest update (7-character hash).
+    pub status_sites: HashMap<String, String>,
+    /// slug -> the newest update whose feed has been read.
+    pub heads: HashMap<String, String>,
+    pub schedule: Schedule,
+    /// `generated` of the last status.json (Unix ms): the time the last run finished.
+    pub generated_ms: i64,
 }
 
 impl Default for State {
@@ -58,6 +70,12 @@ impl Default for State {
             last_check: 0,
             last_error: String::new(),
             recent: vec![],
+            status_mode: false,
+            status_etag: String::new(),
+            status_sites: HashMap::new(),
+            heads: HashMap::new(),
+            schedule: Schedule::default(),
+            generated_ms: 0,
         }
     }
 }
@@ -72,6 +90,26 @@ impl State {
         self.last_check = polled.last_check;
         self.last_error = polled.last_error;
         self.recent = polled.recent;
+        self.status_mode = polled.status_mode;
+        self.status_etag = polled.status_etag;
+        self.status_sites = polled.status_sites;
+        self.heads = polled.heads;
+        self.schedule = polled.schedule;
+        self.generated_ms = polled.generated_ms;
+    }
+
+    /// Forget everything that belongs to the site that was read so far (another dashboard URL).
+    pub fn forget_site_data(&mut self) {
+        self.sites.clear();
+        self.sites_at = 0;
+        self.seen.clear();
+        self.etags.clear();
+        self.recent.clear();
+        self.status_mode = false;
+        self.status_etag.clear();
+        self.status_sites.clear();
+        self.heads.clear();
+        self.generated_ms = 0;
     }
 }
 

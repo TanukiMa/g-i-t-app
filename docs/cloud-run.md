@@ -177,7 +177,7 @@ gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
 - GA4 のデータストリームの URL を、新しいドメインに変える（使っている場合）。
 - **フォローの選択（`localStorage`）はドメインが変わると引き継がれません。** 利用者に「フォロー共有」の `?follow=` リンクで書き出してもらうよう、案内してください。
 
-## 8. 転送量の監視（無料枠は 1 日 360 MB）
+## 8. 転送量の監視（無料枠は月 10 GB）
 
 ```bash
 # ダッシュボード
@@ -194,8 +194,9 @@ gcloud alpha monitoring policies create --policy-from-file=monitoring/hosting-al
 ```
 
 - 指標は `firebasehosting.googleapis.com/network/sent_bytes_count`（リソース `firebase_domain`）です。**初めに、Cloud Monitoring の Metrics Explorer で、この指標が出ていることを確認してください。** 出ていなければ、リソースの種類やフィルタを直す必要があります。
-- 窓は「直近 24 時間」の移動窓です（暦日ごとではありません）。しきい値は 300 MiB（314,572,800 バイト）です。
-- 1 日の上限（360 MB）を超えたあとの扱いは、プランによります。有料（Blaze）にすると、超過分は従量課金になります。
+- **無料枠は「月 10 GB」です**（公式の料金ページ <https://firebase.google.com/docs/hosting/usage-quotas-pricing> で確認。以前の「1 日 360 MB」という数字は古い、または誤りでした）。ストレージも 10 GB まで無料です。
+- アラートは「直近 24 時間」の移動窓で、しきい値は 300 MiB（314,572,800 バイト）です。月 10 GB の日割りは約 333 MB なので、**このペースが続くと月の枠を超える、という早期の警告**として使います。月の累計は、Firebase コンソールの Hosting > 使用状況で見ます。
+- 超えたあとの扱い: **Spark（請求先なし）は、猶予期間のあと、翌月までサイトが無効になります**（課金はされません）。**Blaze（請求先あり）は、超過分が 1 GB あたり $0.15、ストレージは超過分が 1 GB あたり月 $0.026 です**。止まる代わりに課金されます。
 
 ## 9. アーカイブワーカー
 

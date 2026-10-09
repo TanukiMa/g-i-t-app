@@ -1,6 +1,7 @@
 //! Parsing of what the G醫t site publishes.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// One update, as an entry of `feeds/<slug>.xml`.
 #[derive(Debug, Clone, PartialEq)]
@@ -104,6 +105,51 @@ pub fn parse_atom(xml: &str) -> Result<Vec<Entry>, String> {
         });
     }
     Ok(out)
+}
+
+/// `feeds/status.json`: when the pipeline runs and the newest update of every site (see build_dashboard.py).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Status {
+    /// When the last run finished building the dashboard (Unix ms).
+    pub generated_ms: i64,
+    pub runs: Vec<u32>,
+    pub offset_min: i32,
+    pub delay_min: u32,
+    pub window_min: u32,
+    /// slug -> the 7-character hash of the newest real update of the site.
+    pub sites: HashMap<String, String>,
+}
+
+fn parse_hhmm(s: &str) -> Option<u32> {
+    let (h, m) = s.split_once(':')?;
+    let (h, m): (u32, u32) = (h.parse().ok()?, m.parse().ok()?);
+    (h < 24 && m < 60).then_some(h * 60 + m)
+}
+
+pub fn parse_status(json: &str) -> Result<Status, String> {
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("status.json: {e}"))?;
+    let generated = v.get("generated").and_then(|g| g.as_str()).ok_or("status.json: no `generated`")?;
+    let generated_ms = chrono::DateTime::parse_from_rfc3339(generated).map_err(|e| format!("status.json: {e}"))?.timestamp_millis();
+    let mut runs: Vec<u32> = v.get("runs").and_then(|r| r.as_array()).map(|r| r.iter().filter_map(|x| x.as_str().and_then(parse_hhmm)).collect()).unwrap_or_default();
+    runs.sort_unstable();
+    runs.dedup();
+    if runs.is_empty() {
+        return Err("status.json: no `runs`".into());
+    }
+    let num = |key: &str, default: u64| v.get(key).and_then(|x| x.as_u64()).unwrap_or(default);
+    let sites = v
+        .get("sites")
+        .and_then(|s| s.as_object())
+        .map(|o| o.iter().filter(|(k, _)| is_slug(k)).filter_map(|(k, h)| Some((k.clone(), h.as_str()?.to_string()))).collect())
+        .ok_or("status.json: no `sites`")?;
+    Ok(Status {
+        generated_ms,
+        runs,
+        offset_min: v.get("utcOffsetMin").and_then(|x| x.as_i64()).unwrap_or(540).clamp(-720, 840) as i32,
+        delay_min: num("delayMin", 8).min(120) as u32,
+        window_min: num("windowMin", 25).clamp(5, 180) as u32,
+        sites,
+    })
 }
 
 /// `search.json` -> the sites: `{"sites": [[slug, name, url, [tags]], ...], ...}`

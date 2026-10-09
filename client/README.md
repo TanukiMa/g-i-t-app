@@ -23,7 +23,7 @@ cargo test -p git_core      # the core's tests
 ```
 Needs Rust (stable), and on Windows the Visual Studio C++ build tools and WebView2 (already part of Windows 11).
 On first start the settings window opens: choose the sites (or paste the share URL of the ☆ list: dashboard →
-「🔗 フォロー設定を共有」). The app then sits in the tray / menu bar and checks every 15 minutes (5–240).
+「🔗 フォロー設定を共有」). The app then sits in the tray / menu bar and looks for news **after the runs of the pipeline** (a short window after each of 8:30, 12:30, 16:30, 22:00 JST, read from `feeds/status.json`), not every few minutes; a site without that file is checked every 15 minutes (5–240).
 
 - The first check of a site only remembers its current entries: no flood of old updates.
 - More than 3 new entries of one site at once → one summary notification.

@@ -42,7 +42,7 @@
     <div class="grid">
       <label for="baseUrl">ダッシュボードの URL</label>
       <input id="baseUrl" type="url" />
-      <label for="interval">確認の間隔（分）</label>
+      <label for="interval">確認の間隔（分）<br /><small>定時の情報が無いサイトでだけ使います</small></label>
       <input id="interval" type="number" min="5" max="240" step="5" />
       <label for="login" id="loginLabel">ログイン時に起動</label>
       <input id="login" type="checkbox" />
@@ -52,6 +52,7 @@
       <button id="checkBtn" type="button">今すぐ確認</button>
       <button id="testBtn" type="button">通知のテスト</button>
     </div>
+    <p id="scheduleNote" class="muted"></p>
     <p id="msg" class="muted" role="status"></p>
   </section>
 
