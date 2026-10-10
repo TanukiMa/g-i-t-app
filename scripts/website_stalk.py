@@ -4,6 +4,7 @@ import sys
 import shutil
 import threading
 from collections import Counter
+from functools import cached_property
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import subprocess
@@ -111,46 +112,132 @@ def _has_content(text: str) -> bool:
     return "href=" in text or "src=" in text
 
 
-def net_diff(diff_text: str):
-    """The real additions and removals of a diff, for the AI summary.
+class DiffAnalysis:
+    """What a diff REALLY changes: the one place that counts lines, so that the summary, the reorder check and the
+    Re-baseline check can never disagree about the same diff.
 
-    Per changed file the lines (stripped of leading/trailing white space, blank lines ignored) removed and added are
-    counted; a line that was removed AND added the same number of times only moved (a list shifted by one item shows
-    every title on both sides) and is dropped, like is_reorder_only() does. What is left is kept in its original order,
-    without lines that carry neither visible text nor a link (</div>, <li> ...). Returns "" when nothing is left (only
-    markup changed), or None when the diff has no text hunks at all (binary / mode change): use the raw diff then.
+    Per changed file the lines that were removed and added are compared (stripped of leading/trailing white space, blank
+    lines ignored, counted as a multiset): a line that was removed AND added the same number of times only moved (a list
+    shifted by one item shows every title on both sides). What is left is the net change, in its original order.
+      .moved_only   nothing but moved lines in every changed file (is_reorder_only)
+      .text()       the net change for the AI, without lines that carry neither visible text nor a link (</div>, <li> ...)
+      .added_text() visible text that is really added: a rule that ignores or removes something can never add a sentence,
+                    a title or a date, so this is how a real addition is told from the effect of a rule change
     """
-    files, current, in_hunk, hunks = [], None, False, 0
-    for line in diff_text.splitlines():
-        if line.startswith("diff --git "):
-            m = re.match(r"diff --git a/(.*?) b/(.*)$", line)
-            current = {"path": (m.group(2) if m else line[11:]), "lines": []}
-            files.append(current)
-            in_hunk = False
-        elif current is None:
-            continue
-        elif line.startswith("@@"):
-            in_hunk = True
-            hunks += 1
-        elif in_hunk and line[:1] in ("+", "-"):
-            text = line[1:].strip()
-            if text:
-                current["lines"].append((line[0], text))
-    if not hunks:
-        return None
-    out = []
-    for f in files:
-        added = Counter(t for sign, t in f["lines"] if sign == "+")
-        removed = Counter(t for sign, t in f["lines"] if sign == "-")
-        net = {"+": added - removed, "-": removed - added}
-        kept = []
-        for sign, text in f["lines"]:
-            if net[sign][text] > 0 and _has_content(text):
-                net[sign][text] -= 1
-                kept.append(f"{sign}{text}")
-        if kept:
-            out.append(f"=== {f['path']}\n" + "\n".join(kept))
-    return "\n".join(out)
+
+    def __init__(self, diff_text: str):
+        self.files = []              # [{"path", "hunks", "added": Counter, "removed": Counter, "lines": [(sign, text)]}]
+        current, in_hunk = None, False
+        for line in diff_text.splitlines():
+            if line.startswith("diff --git "):
+                m = re.match(r"diff --git a/(.*?) b/(.*)$", line)
+                current = {"path": (m.group(2) if m else line[11:]), "hunks": 0, "added": Counter(), "removed": Counter(), "lines": []}
+                self.files.append(current)
+                in_hunk = False
+            elif current is None:
+                continue
+            elif line.startswith("@@"):
+                in_hunk = True
+                current["hunks"] += 1
+            elif in_hunk and line[:1] in ("+", "-"):
+                text = line[1:].strip()
+                if text:
+                    current["added" if line[0] == "+" else "removed"][text] += 1
+                    current["lines"].append((line[0], text))
+
+    @property
+    def has_text_hunks(self) -> bool:
+        """False for a binary or mode-only diff: there is nothing to read."""
+        return any(f["hunks"] for f in self.files)
+
+    @property
+    def moved_only(self) -> bool:
+        """True when, in every changed file, the lines added are exactly the lines removed."""
+        if not self.files:
+            return False
+        return all(f["hunks"] and f["added"] == f["removed"] and f["added"] for f in self.files)
+
+    @cached_property
+    def net_files(self) -> list:
+        """[(path, [(sign, text)])]: the lines that really changed, in order, without lines that carry no content."""
+        out = []
+        for f in self.files:
+            net = {"+": f["added"] - f["removed"], "-": f["removed"] - f["added"]}
+            kept = []
+            for sign, text in f["lines"]:
+                if net[sign][text] > 0 and _has_content(text):
+                    net[sign][text] -= 1
+                    kept.append((sign, text))
+            if kept:
+                out.append((f["path"], kept))
+        return out
+
+    def text(self):
+        """The net change as text for the summary. "" when nothing is left (only markup changed); None when the diff has
+        no text hunks at all (binary / mode change): use the raw diff then."""
+        if not self.has_text_hunks:
+            return None
+        return "\n".join(f"=== {path}\n" + "\n".join(f"{sign}{text}" for sign, text in lines) for path, lines in self.net_files)
+
+    def added_text(self) -> list:
+        """Visible text that is added and not also removed. Markup, attributes and addresses do not count."""
+        lines = [item for _path, ls in self.net_files for item in ls]
+        removed = {text for sign, text in lines if sign == "-"}
+        return [text for sign, text in lines
+                if sign == "+" and "<" not in text and "href=" not in text and "src=" not in text
+                and not re.match(r"^(https?:)?//|^/", text) and text not in removed]
+
+
+def analyze_diff(diff_text: str) -> DiffAnalysis:
+    return DiffAnalysis(diff_text)
+
+
+def net_diff(diff_text: str):
+    """The real additions and removals of a diff, for the AI summary (see DiffAnalysis.text)."""
+    return DiffAnalysis(diff_text).text()
+
+
+def added_text_lines(diff_text: str) -> list:
+    """Visible text that a diff really adds (see DiffAnalysis.added_text): non-empty = a real addition."""
+    return DiffAnalysis(diff_text).added_text()
+
+
+def is_reorder_only(diff_text: str) -> bool:
+    """True when the diff only moves lines around (see DiffAnalysis.moved_only): tabs that swap places, a list that is
+    shuffled on every request. Nothing was added, removed or reworded, so there is nothing to report."""
+    return DiffAnalysis(diff_text).moved_only
+
+
+class GeminiRestError(Exception):
+    """An error answer of the Gemini REST API; .code is the HTTP status (like the errors of google-genai)."""
+
+    def __init__(self, code: int, body: str):
+        super().__init__(f"{code} {body}")
+        self.code = code
+
+
+class RestGeminiClient:
+    """The few calls of the google-genai client that this pipeline uses, over plain HTTPS with `requests`: for a computer
+    that only has the standard packages (scripts/recover_rebaselined.py, resummarize.py). The container uses google-genai."""
+
+    class _Models:
+        def __init__(self, api_key: str, timeout: float):
+            self._key, self._timeout = api_key, timeout
+
+        def generate_content(self, model: str, contents: str, config: dict):
+            body = {"contents": [{"role": "user", "parts": [{"text": contents}]}],
+                    "generationConfig": {"temperature": config.get("temperature", 0.2)}}
+            if config.get("system_instruction"):
+                body["systemInstruction"] = {"parts": [{"text": config["system_instruction"]}]}
+            res = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                                headers={"x-goog-api-key": self._key}, json=body, timeout=self._timeout)
+            if res.status_code != 200:
+                raise GeminiRestError(res.status_code, res.text[:600])
+            parts = ((res.json().get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+            return type("Reply", (), {"text": "".join(p.get("text", "") for p in parts)})()
+
+    def __init__(self, api_key: str, timeout: float):
+        self.models = self._Models(api_key, timeout)
 
 
 def _is_daily_quota(error) -> bool:
@@ -229,7 +316,7 @@ def summarize_diff_with_gemini(diff_text: str, models=None, allow_fallback: bool
     deadline = min(time.monotonic() + SUMMARY_MAX_SEC, run_deadline(SUMMARY_RESERVE_MIN) + SUMMARY_RESERVE_MIN * 30)
 
     api_key = os.environ.get("GEMINI_API_KEY")
-    gemini_ready = bool(api_key and genai)
+    gemini_ready = bool(api_key)      # google-genai if installed, otherwise the REST client above
     fallback_ready = allow_fallback and all(os.environ.get(k) for k in ("LLM_FALLBACK_URL", "LLM_FALLBACK_KEY", "LLM_FALLBACK_MODEL"))
     if not gemini_ready and not fallback_ready:
         print("GEMINI_API_KEY is not set or google-genai is missing (and no LLM_FALLBACK_* provider). Skipping AI summarization.")
@@ -242,7 +329,8 @@ def summarize_diff_with_gemini(diff_text: str, models=None, allow_fallback: bool
 
     if gemini_ready:
         # http_options.timeout is in milliseconds: no single request may hang.
-        client = genai.Client(api_key=api_key, http_options={"timeout": int(GEMINI_TIMEOUT_SEC * 1000)})
+        client = (genai.Client(api_key=api_key, http_options={"timeout": int(GEMINI_TIMEOUT_SEC * 1000)}) if genai
+                  else RestGeminiClient(api_key, GEMINI_TIMEOUT_SEC))
         for model in (models or GEMINI_MODELS):
             if time.monotonic() >= deadline:
                 break
@@ -404,47 +492,16 @@ def render_diff_html(commit_hash: str, data_dir: str, rel_site: str):
     patch = git(["show", "--format=", "--patch", commit_hash, "--", rel_site], data_dir)
     if patch.returncode != 0 or not patch.stdout.strip():
         return None
+    # diff2html-cli on the PATH (the container), otherwise fetched by npx (a computer that only has Node)
+    cmd = ["diff2html"] if shutil.which("diff2html") else [shutil.which("npx") or "npx", "--yes", "diff2html-cli"]
     try:
-        html = run_cmd(
-            ["diff2html", "-i", "stdin", "-o", "stdout", "-s", "side"],
-            input_text=patch.stdout,
-        )
+        html = run_cmd(cmd + ["-i", "stdin", "-o", "stdout", "-s", "side"], input_text=patch.stdout)
     except OSError as e:
         print(f"diff2html not available: {e}")
         return None
     if html.returncode != 0 or not html.stdout.strip():
         return None
     return html.stdout
-
-
-def is_reorder_only(diff_text: str) -> bool:
-    """True when the diff only moves lines around: in every changed file the lines that were added are exactly the
-    lines that were removed (compared without leading/trailing white space, blank lines ignored).
-
-    Typical cases: tabs or boxes that swap places, a list that is shuffled on every request, "recommended" items in
-    a different order. Nothing was added, removed or reworded, so there is nothing to report.
-    """
-    blocks, current, in_hunk = [], None, False
-    for line in diff_text.splitlines():
-        if line.startswith("diff --git "):
-            current = {"added": Counter(), "removed": Counter(), "hunks": 0}
-            blocks.append(current)
-            in_hunk = False
-        elif current is None:
-            continue
-        elif line.startswith("@@"):
-            in_hunk = True
-            current["hunks"] += 1
-        elif in_hunk and line[:1] in "+-":
-            text = line[1:].strip()
-            if text:
-                current["added" if line[0] == "+" else "removed"][text] += 1
-    if not blocks:
-        return False
-    for b in blocks:
-        if b["hunks"] == 0 or b["added"] != b["removed"] or not b["added"]:
-            return False                      # binary / mode-only / a real addition or removal somewhere
-    return True
 
 
 def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report_reorder: bool = False):
@@ -488,15 +545,22 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report
         return None
 
     git(["add", "-A", "--", rel_site], data_dir)
-    if rebaseline and not is_initial:
-        print(f"Ignore rules of {site_slug} changed in this run: committing the new baseline, not reporting an update.")
-        git(["commit", "-m", f"Re-baseline {site_slug} after ignore rule change", "--only", "--", rel_site], data_dir)
-        return None
     raw_diff = git(["diff", "--cached", "--", rel_site], data_dir).stdout
+    analysis = analyze_diff(raw_diff)         # one reading of the diff for the Re-baseline and the reorder check
+    if rebaseline and not is_initial:
+        # A rule change reshapes the stored page once: that is a new baseline, not news. But a rule only deletes text or
+        # shortens an address; if the diff ADDS text, the page really changed in the same run, and that is reported.
+        added = analysis.added_text()
+        if not added:
+            print(f"Ignore rules of {site_slug} changed in this run: committing the new baseline, not reporting an update.")
+            git(["commit", "-m", f"Re-baseline {site_slug} after ignore rule change", "--only", "--", rel_site], data_dir)
+            return None
+        print(f"Ignore rules of {site_slug} changed in this run, but the page also gained text ({len(added)} line(s), e.g. "
+              f"{added[0][:50]!r}): reported as an update.")
 
     # Same lines in a different order (swapped tabs, a shuffled list ...): not an update. The new order is still
     # committed so that the stored page stays exact, but there is no summary, diff page, row or archive request.
-    if not is_initial and not report_reorder and is_reorder_only(raw_diff):
+    if not is_initial and not report_reorder and analysis.moved_only:
         print(f"{site_slug}: the same content in a different order; committed, not reported as an update.")
         git(["commit", "-m", f"Reorder {site_slug} (same content, different order)", "--only", "--", rel_site], data_dir)
         return None

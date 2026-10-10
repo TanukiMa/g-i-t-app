@@ -139,6 +139,29 @@ gcloud run jobs create g-i-t-raw \
   --set-secrets GH_PAT=GH_PAT:latest,WEBSITE_STALKER_FROM=WEBSITE_STALKER_FROM:latest
 ```
 
+### 吸収された更新の回収（`g-i-t-recover`）: 手元に Python も Gemini のキーも要りません
+Re-baseline のコミットに吸収された更新（`jami` の 10/7 など）を、Cloud Run で回収します。`gcloud` だけあれば、Windows でも macOS でも、出先でも実行できます（キーは Secret Manager のものを使います）。
+
+```bash
+# ジョブを 1 回だけ作る（pwsh が無い環境では、下の gcloud 版）
+pwsh scripts/cloud-run-jobs.ps1 -Jobs recover
+gcloud run jobs create g-i-t-recover --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com   --args recover --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 2400s   --set-env-vars "^#^SUPABASE_URL=<URL>" --set-secrets GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_KEY=SUPABASE_KEY:latest
+
+# 一覧を見る（何も変更しない）
+gcloud run jobs execute g-i-t-recover --region $REGION --wait --args=recover,--dry-run
+# 5 件だけ実行する → 結果を見て、問題なければ --limit を外して残りを実行する
+gcloud run jobs execute g-i-t-recover --region $REGION --wait --args=recover,--limit,5
+# 値にカンマがあるオプション（--exclude a,b）は、区切りを # にする
+gcloud run jobs execute g-i-t-recover --region $REGION --wait --args="^#^recover#--exclude#jsmez,digitalmeddx#--limit#5"
+# 差分ページを公開する（ダッシュボードを作り直して配信）
+gcloud run jobs execute g-i-t-remake-dashboard --region $REGION --wait
+# ログ
+gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="g-i-t-recover"' --limit 80 --order=desc --format="value(textPayload)"
+```
+- 要約のモデルは、既定で `gemini-3.5-flash-lite` です（`--model` で変更）。`created_at` は、コミットの時刻です。
+- 差分ページは、ジョブが `g-i-t-data` にコミットして push します（コミット名: `Recover diff pages (N)`）。**定時実行（7:30・12:30・16:30）の最中は避けてください**（同時に push すると競合しますが、ジョブは自動で再試行します）。
+- コードは起動のたびに GitHub の `main` から取得されるので、**先に `main` に push** してください（イメージの作り直しは不要です）。
+
 `--args` の指定は、ジョブの既定の引数になります。実行時に変えるときは、`gcloud run jobs execute … --args=…` を使います。
 
 ## 6. スケジュール（Cloud Scheduler）

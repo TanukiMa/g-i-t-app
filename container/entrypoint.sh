@@ -6,6 +6,8 @@
 #                      no fetching, no git commit or push, no AI; then deploy to DEPLOY_TARGETS
 #   resummarize [args] regenerate stored AI summaries with net_diff() (scripts/resummarize.py; args are passed on, e.g. --commit 6e64f9f --limit 50 --model gemini-3.8-flash)
 #   help | --help      list the modes (MODE --help: the details of one mode)
+#   recover [args]     recover the updates that a Re-baseline commit swallowed (scripts/recover_rebaselined.py; args are passed on,
+#                      e.g. --dry-run, --limit 5, --exclude jsmez): rows into Supabase, diff pages pushed to g-i-t-data
 #   raw                editor experiment: fetch every site WITHOUT editors into g-i-t-data-raw (scripts/raw_experiment.py)
 set -uo pipefail
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # set by bootstrap.sh (code fetched at start)
@@ -24,6 +26,9 @@ Modes:
   archive             Send the queued URLs (archive_queue) to the Internet Archive, rate limited.
   resummarize [opts]  Regenerate stored AI summaries from the commits of g-i-t-data (net changes only).
                       Options are those of scripts/resummarize.py: resummarize --help
+  recover [opts]      Recover the updates that a Re-baseline commit swallowed: summaries (gemini-3.5-flash-lite by default),
+                      rows in Supabase with the time of the commit, diff pages pushed to g-i-t-data. Options are those of
+                      scripts/recover_rebaselined.py: recover --help.  Then run remake-dashboard to publish.
   raw                 Editor experiment: fetch every site WITHOUT editors into g-i-t-data-raw.
                       Does nothing unless RAW_EXPERIMENT=1.
   help, --help, -h    This text.
@@ -32,6 +37,7 @@ Examples:
   wslc run --rm --env-file .env g-i-t-app --help
   wslc run --rm --env-file .env g-i-t-app stalk
   wslc run --rm --env-file .env g-i-t-app remake-dashboard
+  wslc run --rm --env-file .env g-i-t-app recover --dry-run
   wslc run --rm --env-file .env g-i-t-app resummarize --dry-run
   wslc run --rm --env-file .env g-i-t-app resummarize --commit 6e64f9f --model gemini-3.8-flash
 HELP
@@ -72,7 +78,9 @@ cmd="${1:-stalk}"
 case "$cmd" in
   help|-h|--help) usage; exit 0 ;;
 esac
-if [ "$cmd" = "resummarize" ]; then
+if [ "$cmd" = "recover" ]; then
+  case "${2:-}" in -h|--help) exec python "$APP_DIR/scripts/recover_rebaselined.py" --help ;; esac
+elif [ "$cmd" = "resummarize" ]; then
   case "${2:-}" in -h|--help) exec python "$APP_DIR/scripts/resummarize.py" --help ;; esac
 elif [ "${2:-}" = "--help" ] || [ "${2:-}" = "-h" ] || [ "${2:-}" = "help" ]; then
   mode_help "$cmd"; exit 0
@@ -100,6 +108,36 @@ ASKPASS
   status=$?
   git -C raw gc --quiet || true
   echo "g-i-t-data-raw .git size: $(du -sm raw/.git | cut -f1) MB"
+  exit "$status"
+elif [ "$cmd" = "recover" ]; then
+  shift
+  needed="GH_PAT SUPABASE_URL SUPABASE_KEY"
+  case " $* " in *" --dry-run "*) ;; *) needed="$needed GEMINI_API_KEY" ;; esac
+  for v in $needed; do
+    if [ -z "${!v:-}" ]; then echo "Missing environment variable: $v" >&2; exit 1; fi
+  done
+  cat > /tmp/askpass.sh <<'ASKPASS'
+#!/bin/sh
+case "$1" in Username*) echo x-access-token ;; *) echo "$GH_PAT" ;; esac
+ASKPASS
+  chmod +x /tmp/askpass.sh
+  export GIT_ASKPASS=/tmp/askpass.sh GIT_TERMINAL_PROMPT=0
+  git config --global user.name "g-i-t-bot"
+  git config --global user.email "g-i-t-bot@users.noreply.github.com"
+  git config --global core.quotepath false
+  mkdir -p /work && cd /work || exit 1
+  DATA="${DATA_REPO:-TanukiMa/g-i-t-data}"
+  git clone --filter=blob:none "https://github.com/${DATA}.git" data || exit 1   # full history: the commits are read
+  python "$APP_DIR/scripts/recover_rebaselined.py" --data-dir ./data --pages "$@"
+  status=$?
+  # The diff pages were written into this container's copy: push them, or they are lost with the container.
+  if [ -n "$(git -C data status --porcelain -- public)" ]; then
+    n=$(git -C data status --porcelain -- public | wc -l)
+    git -C data add -A -- public &&
+    git -C data commit -q -m "Recover diff pages ($n)" &&
+    { git -C data push -q origin HEAD || { git -C data pull -q --rebase origin HEAD && git -C data push -q origin HEAD; }; } &&
+    echo "Pushed $n diff page(s) to ${DATA}. Run the remake-dashboard job to publish them." || { echo "Could not push the diff pages." >&2; status=1; }
+  fi
   exit "$status"
 elif [ "$cmd" = "resummarize" ]; then
   for v in GH_PAT SUPABASE_URL SUPABASE_KEY; do

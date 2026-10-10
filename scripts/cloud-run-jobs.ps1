@@ -11,6 +11,8 @@
 #   g-i-t-remake-dashboard  rebuild and publish the dashboard only: no fetching, no git push, no AI
 #   g-i-t-resummarize       regenerate stored summaries (give the options at run time:
 #                           gcloud run jobs execute g-i-t-resummarize --args=resummarize,--dry-run ...)
+#   g-i-t-recover           recover the updates swallowed by Re-baseline commits (pushes diff pages to g-i-t-data;
+#                           gcloud run jobs execute g-i-t-recover --args=recover,--dry-run ...)
 # SUPABASE_URL and WEBSITE_STALKER_FROM are read from the .env file (never printed). The secrets GH_PAT, GEMINI_API_KEY and
 # SUPABASE_KEY must exist in Secret Manager of the project. NOTE: --set-env-vars REPLACES the whole list of a job; put every
 # extra variable you want to keep (GA_MEASUREMENT_ID ...) into -ExtraEnv.
@@ -34,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 # "-File" hands a comma list over as ONE string ("a,b"): split it here
 $Jobs = @($Jobs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $DeployTargets = @($DeployTargets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-foreach ($j in $Jobs) { if ($j -notin 'stalk', 'remake-dashboard', 'resummarize') { throw "unknown job '$j' (stalk, remake-dashboard, resummarize)" } }
+foreach ($j in $Jobs) { if ($j -notin 'stalk', 'remake-dashboard', 'resummarize', 'recover') { throw "unknown job '$j' (stalk, remake-dashboard, resummarize, recover)" } }
 
 function Read-EnvValue([string]$name) {
     if (-not (Test-Path $EnvFile)) { throw "$EnvFile not found (run from the repository root, or pass -EnvFile)" }
@@ -69,6 +71,8 @@ $definitions = @{
     'remake-dashboard' = @{ Name = 'g-i-t-remake-dashboard'; Args = 'remake-dashboard'; Timeout = '900s'; From = $false
                  Secrets = 'GH_PAT=GH_PAT:latest,SUPABASE_KEY=SUPABASE_KEY:latest' }
     'resummarize' = @{ Name = 'g-i-t-resummarize'; Args = 'resummarize'; Timeout = '1800s'; From = $false
+                 Secrets = 'GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_KEY=SUPABASE_KEY:latest' }
+    'recover' = @{ Name = 'g-i-t-recover'; Args = 'recover'; Timeout = '2400s'; From = $false
                  Secrets = 'GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_KEY=SUPABASE_KEY:latest' }
 }
 
