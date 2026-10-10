@@ -16,27 +16,22 @@
     {% if analytics.enabled %}
     <h2>アクセス解析について</h2>
     <p>サイトがどのくらい読まれているか、どこから来られているか、表示が遅くないかを知り、サイトを改善するために、次のサービスを利用しています。</p>
-    <table>
-      <thead><tr><th>サービス</th><th>提供者</th><th>送信される情報</th><th>Cookie など</th></tr></thead>
-      <tbody>
-        {% if analytics.ga_id %}
-        <tr>
-          <td>Google アナリティクス 4（Google Analytics 4）</td>
-          <td>Google LLC（米国）</td>
-          <td>閲覧したページの URL（クエリ文字列を除く）とタイトル、閲覧日時、参照元、ブラウザ・端末の種類、おおよその地域、外部リンクのクリック</td>
-          <td>Cookie（<code>_ga</code> など）を使って、ブラウザを識別します</td>
-        </tr>
-        {% endif %}
-        {% if analytics.cf_token %}
-        <tr>
-          <td>Cloudflare Web Analytics</td>
-          <td>Cloudflare, Inc.（米国）</td>
-          <td>閲覧したページ、参照元、ブラウザ・端末の種類、ページの表示性能（読み込み時間など）</td>
-          <td>Cookie や localStorage を使いません（Cloudflare の説明による）</td>
-        </tr>
-        {% endif %}
-      </tbody>
-    </table>
+    {% if analytics.ga_id %}
+    <h3>Google アナリティクス 4（Google Analytics 4）</h3>
+    <ul>
+      <li><strong>提供者:</strong> Google LLC（米国）</li>
+      <li><strong>送信される情報:</strong> 閲覧したページの URL（クエリ文字列を除く）とタイトル、閲覧日時、参照元、ブラウザ・端末の種類、おおよその地域、外部リンクのクリック</li>
+      <li><strong>Cookie など:</strong> Cookie（<code>_ga</code> など）を使って、ブラウザを識別します</li>
+    </ul>
+    {% endif %}
+    {% if analytics.cf_token %}
+    <h3>Cloudflare Web Analytics</h3>
+    <ul>
+      <li><strong>提供者:</strong> Cloudflare, Inc.（米国）</li>
+      <li><strong>送信される情報:</strong> 閲覧したページ、参照元、ブラウザ・端末の種類、ページの表示性能（読み込み時間など）</li>
+      <li><strong>Cookie など:</strong> Cookie や localStorage を使いません（Cloudflare の説明による）</li>
+    </ul>
+    {% endif %}
     <p><strong>送らない情報:</strong> フォロー中のサイトの一覧、★で保存した検索語、共有リンクに含まれるフォロー設定（<code>?follow=…</code> の部分）、サイト内の検索ボックスに入力した文字。</p>
     <p>各サービスでの情報の扱いは、提供者の説明をご覧ください。</p>
     <ul>

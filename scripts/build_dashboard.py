@@ -718,7 +718,7 @@ def build_sitemap(base: str, sites: list, months: list, weeks: list, updates: li
     """sitemap.xml: the pages worth finding in a search engine (timeline, site list, About, archive, one history page per site).
     Not listed: the diff pages (thousands of near-empty comparison pages), dashboard.html / minimal.html (the same timeline in
     other styles), privacy.html and offline.html. Addresses are the canonical ones (see canonical_url)."""
-    entries = [("index.html", _lastmod(updates)), ("sites.html", _lastmod(updates)), ("about.html", None),
+    entries = [("index.html", _lastmod(updates)), ("sites.html", _lastmod(updates)), ("about.html", None), ("guide.html", None),
                ("archive/index.html", _lastmod(updates))]
     entries += [(f"archive/{g['key']}.html", _lastmod(g["updates"])) for g in weeks + months]
     entries += [(f"sites/{s['slug']}/{SITE_PAGE}", _lastmod(s["updates"])) for s in sites]
@@ -822,6 +822,9 @@ def main():
 
     # About page (design philosophy + the one-picture explanation)
     write(os.path.join(public_dir, "about.html"), env.get_template("about.html").render(**common))
+
+    # User guide (how to read the cards, follow, search, subscribe)
+    write(os.path.join(public_dir, "guide.html"), env.get_template("guide.html").render(**common))
 
     # Privacy and analytics notice (the text follows which analytics IDs are configured)
     write(os.path.join(public_dir, "privacy.html"), env.get_template("privacy.html").render(**common))
