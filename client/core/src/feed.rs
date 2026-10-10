@@ -18,6 +18,23 @@ pub struct Entry {
     pub original_url: String,
 }
 
+impl Entry {
+    /// What the app remembers about an update: "<slug>/<commit>". The entry id also carries the HOST of the site
+    /// ("tag:HOST,2026:g-i-t-data/<slug>/<commit>"), which changed when the dashboard moved to its own domain; the part
+    /// after "g-i-t-data/" does not.
+    pub fn key(&self) -> String {
+        seen_key(&self.id)
+    }
+}
+
+/// "tag:giiit.goudge.org,2026:g-i-t-data/mhlw/ab12…" -> "mhlw/ab12…"; an id without that marker is returned as it is.
+pub fn seen_key(id: &str) -> String {
+    match id.find("g-i-t-data/") {
+        Some(at) => id[at + "g-i-t-data/".len()..].to_string(),
+        None => id.to_string(),
+    }
+}
+
 /// One monitored site, from `search.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

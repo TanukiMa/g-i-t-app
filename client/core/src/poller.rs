@@ -120,11 +120,11 @@ fn refresh_sites_if(state: &mut State, f: &dyn Fetcher, now_ms: i64, unknown: bo
 fn handle_entries(state: &mut State, slug: &str, entries: Vec<Entry>, notify: &mut dyn FnMut(&Notice), now_ms: i64, result: &mut PollResult) {
     let name = state.sites.iter().find(|s| s.slug == slug).map(|s| s.name.clone()).unwrap_or_else(|| slug.to_string());
     let Some(seen) = state.seen.get(slug).cloned() else {
-        state.seen.insert(slug.to_string(), entries.iter().take(SEEN_LIMIT).map(|e| e.id.clone()).collect());
+        state.seen.insert(slug.to_string(), entries.iter().take(SEEN_LIMIT).map(|e| e.key()).collect());
         result.first_seen.push(slug.to_string());
         return;
     };
-    let fresh: Vec<&Entry> = entries.iter().filter(|e| !seen.contains(&e.id)).rev().collect(); // oldest first
+    let fresh: Vec<&Entry> = entries.iter().filter(|e| !seen.contains(&e.key())).rev().collect(); // oldest first
     if fresh.is_empty() {
         return;
     }
@@ -173,7 +173,7 @@ fn handle_entries(state: &mut State, slug: &str, entries: Vec<Entry>, notify: &m
     }
     state.recent.truncate(RECENT_LIMIT);
     let mut all = seen;
-    all.extend(fresh.iter().map(|e| e.id.clone()));
+    all.extend(fresh.iter().map(|e| e.key()));
     let skip = all.len().saturating_sub(SEEN_LIMIT);
     state.seen.insert(slug.to_string(), all.into_iter().skip(skip).collect());
 }

@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-pub const DEFAULT_BASE_URL: &str = "https://tanukima.github.io/g-i-t-data/";
+pub const DEFAULT_BASE_URL: &str = "https://giiit.goudge.org/";
+/// The address before the move to its own domain: it still forwards and still serves the feeds, but a state that has it
+/// as the dashboard address is moved to DEFAULT_BASE_URL when it is loaded.
+pub const OLD_DEFAULT_BASE_URL: &str = "https://tanukima.github.io/g-i-t-data/";
 pub const SEEN_LIMIT: usize = 300;
 pub const RECENT_LIMIT: usize = 50;
 
@@ -126,7 +129,28 @@ pub fn normalize_base(url: &str) -> Result<String, String> {
 }
 
 pub fn load(path: &Path) -> State {
-    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    let mut state: State = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    state.migrate();
+    state
+}
+
+impl State {
+    /// Brings a state written by an older version up to date. Safe to run on every load.
+    ///  - what is remembered about an update is "<slug>/<commit>" (see Entry::key); older states hold the whole entry id,
+    ///    which carries the host name, so the move to the new domain would make every entry look new;
+    ///  - the old default address becomes the new one (the ETags belong to the old address and are dropped).
+    pub fn migrate(&mut self) {
+        for ids in self.seen.values_mut() {
+            for id in ids.iter_mut() {
+                *id = crate::feed::seen_key(id);
+            }
+        }
+        if self.base_url == OLD_DEFAULT_BASE_URL {
+            self.base_url = DEFAULT_BASE_URL.to_string();
+            self.etags.clear();
+            self.status_etag.clear();
+        }
+    }
 }
 
 /// Atomic: a crash never leaves a half-written file.

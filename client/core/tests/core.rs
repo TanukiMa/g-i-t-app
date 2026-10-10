@@ -237,6 +237,43 @@ fn http_fetcher_etag_round_trip() {
 }
 
 #[test]
+fn a_move_to_another_domain_does_not_make_every_entry_new() {
+    // an old state: the old default address, entries remembered with the whole id (host name included)
+    let dir = std::env::temp_dir().join(format!("gd-move-{}", std::process::id()));
+    let file = dir.join("state.json");
+    let mut old = State::default();
+    old.base_url = state::OLD_DEFAULT_BASE_URL.to_string();
+    old.follow = vec!["s1".into()];
+    old.sites = vec![git_core::feed::Site { slug: "s1".into(), name: "サイト".into(), url: "https://orig.example/".into(), tags: vec![] }];
+    old.sites_at = 1_000;
+    old.etags.insert("s1".into(), "\"old\"".into());
+    old.seen.insert("s1".into(), vec![format!("tag:tanukima.github.io,2026:g-i-t-data/s1/{}", hash(2)), format!("tag:tanukima.github.io,2026:g-i-t-data/s1/{}", hash(1))]);
+    state::save(&file, &old).unwrap();
+
+    let mut st = state::load(&file);
+    assert_eq!(st.base_url, state::DEFAULT_BASE_URL, "the old default address is moved");
+    assert!(st.etags.is_empty(), "ETags of the old address are dropped");
+    assert_eq!(st.seen["s1"], [format!("s1/{}", hash(2)), format!("s1/{}", hash(1))], "ids are reduced to <slug>/<commit>");
+
+    // the feed now carries ids of the NEW host: the same two updates, and one that is really new
+    let f = Fake { feeds: RefCell::new(HashMap::new()), calls: RefCell::new(vec![]) };
+    let xml = feed("s1", &[item(3, "追加: 本当に新しい"), item(2, "追加: 既知"), item(1, "追加: 既知")]).replace("tag:git.example.com", "tag:giiit.goudge.org");
+    f.feeds.borrow_mut().insert("s1".into(), FakeFeed { xml, etag: "\"n\"".into(), status: 200 });
+    let (_, notes) = run(&mut st, &f);
+    assert_eq!(notes.len(), 1, "only the new update is announced, not the whole feed");
+    assert!(notes[0].body.contains("本当に新しい"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn entry_keys_do_not_depend_on_the_host() {
+    use git_core::feed::seen_key;
+    assert_eq!(seen_key("tag:giiit.goudge.org,2026:g-i-t-data/mhlw/abc1234"), "mhlw/abc1234");
+    assert_eq!(seen_key("tag:tanukima.github.io,2026:g-i-t-data/mhlw/abc1234"), "mhlw/abc1234");
+    assert_eq!(seen_key("id1"), "id1", "an id without the marker stays as it is");
+}
+
+#[test]
 fn state_round_trip_and_normalize_base() {
     let dir = std::env::temp_dir().join(format!("gd-{}", std::process::id()));
     let file = dir.join("sub").join("state.json");
