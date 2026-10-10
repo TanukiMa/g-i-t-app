@@ -701,6 +701,35 @@ def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: st
         print(f"Removed {stale_app} (PWA_ENABLED is not optin)")
 
 
+def _lastmod(updates: list):
+    """W3C date (JST) of the newest update in the list, or None."""
+    best = None
+    for u in updates:
+        try:
+            dt = jst_datetime(u["created_at"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if best is None or dt > best:
+            best = dt
+    return best.strftime("%Y-%m-%d") if best else None
+
+
+def build_sitemap(base: str, sites: list, months: list, weeks: list, updates: list) -> str:
+    """sitemap.xml: the pages worth finding in a search engine (timeline, site list, About, archive, one history page per site).
+    Not listed: the diff pages (thousands of near-empty comparison pages), dashboard.html / minimal.html (the same timeline in
+    other styles), privacy.html and offline.html. Addresses are the canonical ones (see canonical_url)."""
+    entries = [("index.html", _lastmod(updates)), ("sites.html", _lastmod(updates)), ("about.html", None),
+               ("archive/index.html", _lastmod(updates))]
+    entries += [(f"archive/{g['key']}.html", _lastmod(g["updates"])) for g in weeks + months]
+    entries += [(f"sites/{s['slug']}/{SITE_PAGE}", _lastmod(s["updates"])) for s in sites]
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for rel, mod in entries:
+        loc = html.escape(canonical_url(base, rel), quote=False)
+        lines.append(f"  <url><loc>{loc}</loc>" + (f"<lastmod>{mod}</lastmod>" if mod else "") + "</url>")
+    lines.append("</urlset>")
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build static dashboard for G-I-T")
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
@@ -832,6 +861,16 @@ def main():
         tagged = [u for u in updates if tag["name"] in site_by_slug.get(u.get("site_slug"), {}).get("tags", [])]
         write(os.path.join(public_dir, "feeds", f"{tag['id']}.xml"),
               build_atom(f"G醫t 分類: {tag['name']}", tag["feed"], "sites.html", tagged[:FEED_LIMIT_SITE], names, base_url))
+
+    # sitemap.xml and robots.txt: only for a site of its own (see canonical_base); otherwise remove stale copies
+    canon = _canon["base"]
+    for name in ("sitemap.xml", "robots.txt"):
+        stale = os.path.join(public_dir, name)
+        if not canon and os.path.isfile(stale):
+            os.remove(stale)
+    if canon:
+        write(os.path.join(public_dir, "sitemap.xml"), build_sitemap(canon, sites, months, weeks, updates))
+        write(os.path.join(public_dir, "robots.txt"), f"User-agent: *\nAllow: /\n\nSitemap: {canon}sitemap.xml\n")
 
     if args.no_push:
         print("--no-push: public/ is written, nothing is committed or pushed.")
