@@ -113,6 +113,8 @@ gcloud run jobs executions list --job g-i-t-stalk --region $REGION
 
 ## 5b. そのほかのジョブ（同じイメージ、引数だけ違う）
 
+**`scripts/cloud-run-jobs.ps1` で、`g-i-t-stalk`、`g-i-t-remake-dashboard`、`g-i-t-resummarize` を、1 つの設定から作る・更新できます**（`SITE_BASE_URL` や `DEPLOY_TARGETS` がジョブごとにずれるのを防ぎます）。`pwsh scripts/cloud-run-jobs.ps1 -DryRun` で内容を確認してから、`-DryRun` を外して実行します。独自ドメインに移すときは、`-SiteBaseUrl https://giiit.goudge.org/ -DeployTargets github-pages-redirect,firebase` を付けて、もう一度実行すれば、全ジョブが揃って更新されます。`--set-env-vars` は一覧を丸ごと置き換えるので、追加の環境変数（`GA_MEASUREMENT_ID` など）は `-ExtraEnv "KEY=値"` で渡してください。以下は、手で作る場合のコマンドです。
+
 ```bash
 # ダッシュボードの見た目だけ直したとき。取得・git の commit と push・AI は動かない（GH_PAT は clone 用）
 gcloud run jobs create g-i-t-remake-dashboard \
