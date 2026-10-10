@@ -128,8 +128,8 @@ gcloud run jobs create g-i-t-resummarize \
   --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com --args=resummarize \
   --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 1800s \
   --set-secrets GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest
-gcloud run jobs execute g-i-t-resummarize --region $REGION --wait --args=resummarize,--dry-run
-gcloud run jobs execute g-i-t-resummarize --region $REGION --wait --args=resummarize,--limit,50
+gcloud run jobs execute g-i-t-resummarize --region $REGION --wait --args="resummarize,--dry-run"
+gcloud run jobs execute g-i-t-resummarize --region $REGION --wait --args="resummarize,--limit,50"
 
 # 論文用の実験（RAW_EXPERIMENT=1 の間だけ。通常は作らない）
 gcloud run jobs create g-i-t-raw \
@@ -148,9 +148,9 @@ pwsh scripts/cloud-run-jobs.ps1 -Jobs recover
 gcloud run jobs create g-i-t-recover --image $IMAGE --region $REGION --service-account $SA@$PROJECT.iam.gserviceaccount.com   --args recover --cpu 1 --memory 1Gi --max-retries 0 --task-timeout 2400s   --set-env-vars "^#^SUPABASE_URL=<URL>" --set-secrets GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_KEY=SUPABASE_KEY:latest
 
 # 一覧を見る（何も変更しない）
-gcloud run jobs execute g-i-t-recover --region $REGION --wait --args=recover,--dry-run
+gcloud run jobs execute g-i-t-recover --region $REGION --wait --args="recover,--dry-run"
 # 5 件だけ実行する → 結果を見て、問題なければ --limit を外して残りを実行する
-gcloud run jobs execute g-i-t-recover --region $REGION --wait --args=recover,--limit,5
+gcloud run jobs execute g-i-t-recover --region $REGION --wait --args="recover,--limit,5"
 # 値にカンマがあるオプション（--exclude a,b）は、区切りを # にする
 gcloud run jobs execute g-i-t-recover --region $REGION --wait --args="^#^recover#--exclude#jsmez,digitalmeddx#--limit#5"
 # 差分ページを公開する（ダッシュボードを作り直して配信）
@@ -158,6 +158,7 @@ gcloud run jobs execute g-i-t-remake-dashboard --region $REGION --wait
 # ログ
 gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="g-i-t-recover"' --limit 80 --order=desc --format="value(textPayload)"
 ```
+- **PowerShell では、`--args` の値を二重引用符で囲みます**（`--args="recover,--dry-run"`）。囲まないと、PowerShell がカンマ区切りを空白でつないだ 1 つの語にして渡し、コンテナが `Unknown mode: recover --dry-run` で止まります（コンテナ側でも、1 語なら分割して受け取ります）。
 - 要約のモデルは、既定で `gemini-3.5-flash-lite` です（`--model` で変更）。`created_at` は、コミットの時刻です。
 - 差分ページは、ジョブが `g-i-t-data` にコミットして push します（コミット名: `Recover diff pages (N)`）。**定時実行（7:30・12:30・16:30）の最中は避けてください**（同時に push すると競合しますが、ジョブは自動で再試行します）。
 - コードは起動のたびに GitHub の `main` から取得されるので、**先に `main` に push** してください（イメージの作り直しは不要です）。

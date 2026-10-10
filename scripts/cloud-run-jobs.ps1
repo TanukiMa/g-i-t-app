@@ -10,9 +10,9 @@
 #   g-i-t-stalk             the full pipeline (started by Cloud Scheduler)
 #   g-i-t-remake-dashboard  rebuild and publish the dashboard only: no fetching, no git push, no AI
 #   g-i-t-resummarize       regenerate stored summaries (give the options at run time:
-#                           gcloud run jobs execute g-i-t-resummarize --args=resummarize,--dry-run ...)
+#                           gcloud run jobs execute g-i-t-resummarize --args="resummarize,--dry-run" ...)
 #   g-i-t-recover           recover the updates swallowed by Re-baseline commits (pushes diff pages to g-i-t-data;
-#                           gcloud run jobs execute g-i-t-recover --args=recover,--dry-run ...)
+#                           gcloud run jobs execute g-i-t-recover --args="recover,--dry-run" ...)
 # SUPABASE_URL and WEBSITE_STALKER_FROM are read from the .env file (never printed). The secrets GH_PAT, GEMINI_API_KEY and
 # SUPABASE_KEY must exist in Secret Manager of the project. NOTE: --set-env-vars REPLACES the whole list of a job; put every
 # extra variable you want to keep (GA_MEASUREMENT_ID ...) into -ExtraEnv.

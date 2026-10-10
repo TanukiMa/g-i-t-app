@@ -74,6 +74,9 @@ HELP
   esac
 }
 
+# PowerShell joins an unquoted list (--args=recover,--dry-run) into ONE word "recover --dry-run": split such a word again
+if [ "$#" -eq 1 ] && [ "${1#* }" != "$1" ]; then set -f; set -- $1; set +f; fi
+
 cmd="${1:-stalk}"
 case "$cmd" in
   help|-h|--help) usage; exit 0 ;;
