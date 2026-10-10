@@ -81,7 +81,7 @@ gcloud builds submit --config cloudbuild.yaml --substitutions _IMAGE=$IMAGE,_TAR
 - **`DEPLOY_TARGETS` に、そのイメージに無い公開先を書くと、起動時にエラーで止まります**（実行の最後ではなく、最初に分かります）。
 - 公開先を Firebase から Cloudflare に切り替えるときは、`_TARGET=cloudflare` でイメージを作り直し、ジョブのイメージと `DEPLOY_TARGETS` を更新します。両方に同時に出す期間は、2 つのイメージを別々のジョブで走らせるか、イメージに両方のツールを入れる必要があります（現状は、片方ずつです）。
 - 大きさは展開後の値です。Artifact Registry の保存容量は、圧縮後で数えられるはずです（無料枠 0.5 GB。push のあとで `gcloud artifacts docker images list` で確認してください）。
-- `gcloud builds submit` が送るのは、**`.gcloudignore` に従った 4 ファイルだけ**です（`cloudbuild.yaml`、`requirements.txt`、`container/Dockerfile`、`container/bootstrap.sh`）。`.dockerignore` は、送るファイルの選択には使われません。この指定が無いと、`client/target` など数 GB と、`.env`（実際のキー）まで送ってしまいます。確認: `gcloud meta list-files-for-upload .`
+- `gcloud builds submit` が送るのは、**`.gcloudignore` に従った 4 ファイルだけ**です（`cloudbuild.yaml`、`requirements.txt`、`container/Dockerfile`、`container/bootstrap.sh`）。`.dockerignore` は、送るファイルの選択には使われません。この指定が無いと、ビルドの生成物など数 GB と、`.env`（実際のキー）まで送ってしまいます。確認: `gcloud meta list-files-for-upload .`
 - バージョンを固定するときは、`--substitutions …,_FIREBASE_TOOLS_VERSION=<x.y.z>`（または `_WRANGLER_VERSION`）を足します。固定しないと、ビルドした日の最新版が入ります。
 
 **イメージに入っているのは、ツールと依存だけです**（website-stalker、Node、Python の依存）。`scripts/`・`templates/`・`static/` などの g-i-t-app のコードは、**実行のたびに GitHub（`APP_REPO` の `APP_REF`）から取得します**。コードを変えたときは、push するだけで、次の実行から反映されます。イメージの作り直しが要るのは、`requirements.txt` か `Dockerfile` を変えたときだけです（`requirements.txt` が焼き込んだものと違うと、起動時にエラーで止まります）。
