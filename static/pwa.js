@@ -180,6 +180,7 @@
         cleanAddress();
         activate();
         msg.textContent = "このブラウザでアプリを有効にしました。インストールのボタンが出ない場合は、ページを再読み込みしてください。";
+        window.setTimeout(function () { if (box.parentNode) box.parentNode.removeChild(box); }, 6000);   // done: the box goes away
       });
     });
     document.body.appendChild(box);
@@ -194,6 +195,11 @@
         flagSet(false);
         deactivate();
         cleanAddress();
+        return;
+      }
+      if (standalone) {                 // inside the installed app: never ask, just show the normal address
+        cleanAddress();
+        if (flagGet()) activate();
         return;
       }
       if (!flagGet()) {
