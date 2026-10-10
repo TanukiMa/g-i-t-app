@@ -27,6 +27,8 @@ param(
     [string]$StalkRuns = '07:30,12:30,16:30',
     [string]$PwaEnabled = '0',
     [string]$PwaPassphraseHash = '',
+    [string]$GaMeasurementId = '',      # Google Analytics 4 (G-XXXXXXXXXX); empty = the value in .env, or off
+    [string]$CfBeaconToken = '',        # Cloudflare Web Analytics; empty = the value in .env, or off
     [string[]]$ExtraEnv = @(),
     [string[]]$Jobs = @('stalk', 'remake-dashboard'),
     [string]$EnvFile = '.env',
@@ -45,6 +47,16 @@ function Read-EnvValue([string]$name) {
     return ($line -split '=', 2)[1]
 }
 
+# Analytics IDs: the parameter, else the (non-empty) value of .env; empty = that service stays off
+function Read-OptionalEnv([string]$name) {
+    if (-not (Test-Path $EnvFile)) { return '' }
+    $line = Get-Content $EnvFile | Where-Object { $_ -match "^$name=" } | Select-Object -First 1
+    if ($line) { return (($line -split '=', 2)[1]).Trim() } else { return '' }
+}
+if (-not $GaMeasurementId) { $GaMeasurementId = Read-OptionalEnv 'GA_MEASUREMENT_ID' }
+if (-not $CfBeaconToken) { $CfBeaconToken = Read-OptionalEnv 'CF_BEACON_TOKEN' }
+if ($GaMeasurementId -and $GaMeasurementId -notmatch '^G-[A-Z0-9]{6,}$') { throw "GaMeasurementId '$GaMeasurementId' does not look like G-XXXXXXXXXX" }
+
 $image = "$Region-docker.pkg.dev/$Project/git/g-i-t-app:$ImageTag"
 $sa = "$ServiceAccount@$Project.iam.gserviceaccount.com"
 $supabaseUrl = Read-EnvValue 'SUPABASE_URL'
@@ -60,6 +72,8 @@ function New-EnvArg([bool]$withFrom) {
         "SUPABASE_URL=$supabaseUrl"
     )
     if ($PwaPassphraseHash) { $pairs += "PWA_PASSPHRASE_HASH=$PwaPassphraseHash" }
+    if ($GaMeasurementId) { $pairs += "GA_MEASUREMENT_ID=$GaMeasurementId" }
+    if ($CfBeaconToken) { $pairs += "CF_BEACON_TOKEN=$CfBeaconToken" }
     if ($withFrom) { $pairs += "WEBSITE_STALKER_FROM=$(Read-EnvValue 'WEBSITE_STALKER_FROM')" }
     $pairs += $ExtraEnv
     return '^#^' + ($pairs -join '#')
