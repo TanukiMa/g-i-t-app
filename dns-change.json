@@ -1,8 +1,0 @@
-{
-  "Changes": [
-    { "Action": "UPSERT", "ResourceRecordSet": { "Name": "giiit.goudge.org.", "Type": "TXT", "TTL": 300,
-        "ResourceRecords": [ { "Value": "\"<Firebase が表示した TXT の値>\"" } ] } },
-    { "Action": "UPSERT", "ResourceRecordSet": { "Name": "giiit.goudge.org.", "Type": "A", "TTL": 300,
-        "ResourceRecords": [ { "Value": "<Firebase が表示した A の値>" } ] } }
-  ]
-}
