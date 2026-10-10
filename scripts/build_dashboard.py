@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
@@ -543,11 +543,85 @@ def analytics_settings() -> dict:
         cf_token = ""
     return {"ga_id": ga_id, "cf_token": cf_token, "enabled": bool(ga_id or cf_token)}
 
+# ---- one address per page: <link rel="canonical"> and a move away from the default Firebase addresses ----
+CANON_START, CANON_END = "<!--git-canon-->", "<!--/git-canon-->"
+_canon = {"base": None, "public": ""}      # set by main(): the canonical base address, and the folder of public/
+
+
+def canonical_base():
+    """The address the pages must be known by: SITE_BASE_URL, when it is a real site of its own. None for GitHub Pages
+    (github.io: the old address, which only forwards), localhost and an empty value: then the pages stay as they are."""
+    base = os.environ.get("SITE_BASE_URL", SITE_BASE_URL).strip()
+    host = urlparse(base).netloc.lower().split(":")[0]
+    if not host or host.endswith("github.io") or host in ("localhost", "127.0.0.1"):
+        return None
+    return base if base.endswith("/") else base + "/"
+
+
+def canonical_url(base: str, rel_path: str) -> str:
+    """public/<rel_path> -> its address: index.html is the directory address, other pages keep their file name."""
+    rel = rel_path.replace(os.sep, "/")
+    if rel == "index.html":
+        rel = ""
+    elif rel.endswith("/index.html"):
+        rel = rel[: -len("index.html")]
+    return base + quote(rel, safe="/%")
+
+
+def inject_canonical(page: str, rel_path: str, base) -> str:
+    """Put the canonical link (and, for a custom domain, the move away from *.web.app / *.firebaseapp.com) right after <head>.
+
+    The Hosting default addresses (SITE.web.app, SITE.firebaseapp.com) cannot be switched off and serve the same files, so
+    a search engine could list every page three times: the canonical link names the one real address, and a visitor who
+    arrives on a default address is sent to the same page on the real one (path, query and #fragment kept). A block of an
+    earlier build is replaced, and removed when there is no canonical base any more (SITE_BASE_URL back on github.io)."""
+    page = re.sub(re.escape(CANON_START) + r".*?" + re.escape(CANON_END), "", page, flags=re.S)
+    if not base:
+        return page
+    m = re.search(r"<head[^>]*>", page, re.I)
+    if not m:
+        return page
+    block = f'{CANON_START}<link rel="canonical" href="{html.escape(canonical_url(base, rel_path), quote=True)}">'
+    host = urlparse(base).netloc.lower().split(":")[0]
+    if not host.endswith((".web.app", ".firebaseapp.com")):      # on a default address itself there would be a loop
+        block += ('<script>(function(){if(/\\.(web\\.app|firebaseapp\\.com)$/i.test(location.hostname)){location.replace('
+                  + json.dumps(base) + '+location.pathname.replace(/^\\/+/,"")+location.search+location.hash)}})();</script>')
+    return page[:m.end()] + block + CANON_END + page[m.end():]
+
+
 def write(path: str, content: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    rel = os.path.relpath(path, _canon["public"]) if _canon["public"] else ""
+    if rel.endswith(".html") and not rel.startswith("..") and rel.replace(os.sep, "/") != "offline.html":
+        content = inject_canonical(content, rel, _canon["base"])
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"Generated {path}")
+
+
+def canonicalize_diff_pages(public_dir: str, base) -> int:
+    """The diff pages are written by diff2html and decorated earlier (decorate_diff_pages): give them the canonical link too.
+    Only a page that changes is written again. Returns how many."""
+    changed = 0
+    sites_root = os.path.join(public_dir, "sites")
+    if not os.path.isdir(sites_root):
+        return 0
+    for slug in os.listdir(sites_root):
+        folder = os.path.join(sites_root, slug)
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            if not (name.startswith("diff_") and name.endswith(".html")):
+                continue
+            path = os.path.join(folder, name)
+            with open(path, "r", encoding="utf-8", newline="") as f:
+                page = f.read()
+            new = inject_canonical(page, f"sites/{slug}/{name}", base)
+            if new != page:
+                with open(path, "w", encoding="utf-8", newline="") as f:
+                    f.write(new)
+                changed += 1
+    return changed
 
 
 def asset_version(static_dir: str) -> str:
@@ -671,6 +745,9 @@ def main():
                        analytics=analytics_settings())
 
     print(f"Decorated {decorate_diff_pages(public_dir, names, updates)} diff page(s).")
+    _canon["base"], _canon["public"] = canonical_base(), public_dir
+    print(f"Canonical address: {_canon['base'] or '(none: SITE_BASE_URL is GitHub Pages or local)'}; "
+          f"{canonicalize_diff_pages(public_dir, _canon['base'])} diff page(s) changed.")
 
     env.globals["asset_version"] = asset_version(static_dir) if os.path.isdir(static_dir) else ""
     generated = to_jst(datetime.now(timezone.utc))
