@@ -245,6 +245,12 @@ def build_tag_infos(sites: list) -> list:
             for t, n in sorted(counts.items())]
 
 
+def iso_attr(value) -> str:
+    """A time stamp for a <time datetime="..."> attribute: HTML allows at most three digits of a second's fraction, and the
+    database gives six (2026-10-11T07:33:30.134784+00:00)."""
+    return re.sub(r"(\.\d{3})\d+", r"\g<1>", str(value))
+
+
 def jst_datetime(value) -> datetime:
     return parse_timestamp(value).astimezone(JST)
 
@@ -763,7 +769,7 @@ def main():
 
     site_by_slug = {s_["slug"]: s_ for s_ in sites}
     env.filters.update(
-        jst=to_jst, hostname=hostname, md=render_markdown, excerpt=excerpt, summary_by=summary_by,
+        jst=to_jst, iso_attr=iso_attr, hostname=hostname, md=render_markdown, excerpt=excerpt, summary_by=summary_by,
         jst_hm=lambda v: to_jst(v, with_suffix=False)[11:],
         site_name=lambda slug: names.get(slug, slug),
         site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),

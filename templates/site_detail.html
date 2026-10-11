@@ -30,10 +30,10 @@
 
   <div id="content">
     {% if updates %}
-    <h3 class="section-title">最新の更新</h3>
+    <h2 class="section-title">最新の更新</h2>
     {{ entry(updates[0], '') }}
     {% if updates|length > 1 %}
-    <h3 class="section-title">これまでの更新</h3>
+    <h2 class="section-title">これまでの更新</h2>
     {% for item in updates[1:] %}
     {{ entry(item, '') }}
     {% endfor %}

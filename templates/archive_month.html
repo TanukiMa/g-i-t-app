@@ -16,7 +16,7 @@
   {{ filter_bar(tags) }}
   <div id="content">
     {% for day, items in days %}
-    <h3 class="section-title day">{{ day }}</h3>
+    <h2 class="section-title day">{{ day }}</h2>
     <ul class="row-list">
       {% for item in items %}
       {{ entry_row(item, root) }}
