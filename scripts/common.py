@@ -16,7 +16,7 @@ DATA_REPO_URL = "https://github.com/TanukiMa/g-i-t-data"
 SITE_PAGE = "history.html"
 
 # Absolute base URL of the published dashboard (needed for Atom feeds). Override with SITE_BASE_URL.
-SITE_BASE_URL = "https://tanukima.github.io/g-i-t-data/"
+SITE_BASE_URL = "https://giiit.goudge.org/"
 
 # When the pipeline runs (JST, "HH:MM,HH:MM,..."): published in feeds/status.json so that the client apps look for news
 # shortly after a run instead of every 15 minutes. Cloud Scheduler decides the real times; keep this in step with it.

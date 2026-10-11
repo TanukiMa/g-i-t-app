@@ -4,7 +4,7 @@
 #   pwsh scripts/cloud-run-jobs.ps1 -DryRun                       # shows what would be done, changes nothing
 #   pwsh scripts/cloud-run-jobs.ps1                               # stalk + remake-dashboard (create, or update when they exist)
 #   pwsh scripts/cloud-run-jobs.ps1 -Jobs resummarize             # one job
-#   pwsh scripts/cloud-run-jobs.ps1 -SiteBaseUrl https://giiit.goudge.org/ -DeployTargets github-pages-redirect,firebase
+#   pwsh scripts/cloud-run-jobs.ps1 -SiteBaseUrl https://giiit.goudge.org/ -DeployTargets github-pages-redirect,firebase   # the defaults
 #
 # Jobs (the image's default command is "stalk"; the others pass the mode as the argument):
 #   g-i-t-stalk             the full pipeline (started by Cloud Scheduler)
@@ -22,8 +22,8 @@ param(
     [string]$WebProject = 'g-i-t-web',
     [string]$ServiceAccount = 'g-i-t-runner',
     [string]$ImageTag = 'firebase',
-    [string]$SiteBaseUrl = 'https://tanukima.github.io/g-i-t-data/',
-    [string[]]$DeployTargets = @('github-pages', 'firebase'),
+    [string]$SiteBaseUrl = 'https://giiit.goudge.org/',
+    [string[]]$DeployTargets = @('github-pages-redirect', 'firebase'),
     [string]$StalkRuns = '07:30,12:30,16:30',
     [string]$PwaEnabled = '0',
     [string]$PwaPassphraseHash = '',
