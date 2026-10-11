@@ -16,7 +16,7 @@ from markupsafe import Markup
 from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, STALK_RUNS, STATUS_DELAY_MIN,
                     STATUS_WINDOW_MIN, SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT,
                     LEGACY_SUMMARY_INITIAL)
-from provision import config_problems, configured_sites
+from provision import config_problems, configured_sites, configured_tag_groups
 
 try:
     from supabase import create_client, Client
@@ -235,14 +235,22 @@ def tag_id(tag: str) -> str:
     return "tag-" + hashlib.sha1(tag.encode("utf-8")).hexdigest()[:8]
 
 
-def build_tag_infos(sites: list) -> list:
-    """[{name, id, count, feed}] sorted by name; count = number of sites carrying the tag."""
+def build_tag_infos(sites: list, groups: list = ()) -> list:
+    """[{name, id, count, feed, group}]; count = number of sites carrying the tag. With `tag_groups` in config.yaml the tags
+    come in the order of the groups (`group` = the heading); tags in no group follow, sorted by name, with group ""."""
     counts = {}
     for site in sites:
         for tag in site.get("tags", []):
             counts[tag] = counts.get(tag, 0) + 1
-    return [{"name": t, "id": tag_id(t), "count": n, "feed": f"feeds/{tag_id(t)}.xml"}
-            for t, n in sorted(counts.items())]
+    ordered, seen = [], set()
+    for group, names in groups:
+        for t in names:
+            if t in counts and t not in seen:
+                ordered.append((t, group))
+                seen.add(t)
+    ordered += [(t, "") for t in sorted(counts) if t not in seen]
+    return [{"name": t, "id": tag_id(t), "count": counts[t], "feed": f"feeds/{tag_id(t)}.xml", "group": g}
+            for t, g in ordered]
 
 
 def iso_attr(value) -> str:
@@ -787,7 +795,7 @@ def main():
     env.globals["asset_version"] = asset_version(static_dir) if os.path.isdir(static_dir) else ""
     generated = to_jst(datetime.now(timezone.utc))
     build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
-    tags = build_tag_infos(sites)
+    tags = build_tag_infos(sites, configured_tag_groups(args.data_dir))
     base_url = os.environ.get("SITE_BASE_URL", SITE_BASE_URL)
     stats = {
         "updates": len(updates),

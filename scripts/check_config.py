@@ -20,7 +20,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from provision import SLUG_RE, _UNSUPPORTED_REGEX, target_slug  # noqa: E402
 
-TOP_KEYS = {"sites", "ignore", "remove"}
+TOP_KEYS = {"sites", "ignore", "remove", "tag_groups"}
 SITE_KEYS = {"url", "name", "slug", "tags", "ignore", "remove", "default_ignore", "report_reorder", "display_url", "json_records"}
 # Typographic quotes are almost always a paste from a word processor: they do not close a YAML string.
 TYPO_QUOTES = "“”‘’"   # curly double and single quotes
@@ -90,7 +90,22 @@ def check_text(text: str):
     _check_rules(top.get("ignore"), _line_of(root, "ignore"), "top-level ignore", err)
     _check_selectors(top.get("remove"), _line_of(root, "remove"), "top-level remove", err)
 
+    groups = top.get("tag_groups")
+    grouped = set()
+    if groups is not None:
+        gline = _line_of(root, "tag_groups")
+        if not isinstance(groups, dict) or not all(isinstance(v, list) for v in groups.values()):
+            err(gline, "`tag_groups` must be a mapping of group name -> list of tags")
+            groups = None
+        else:
+            for gname, gtags in groups.items():
+                for t in gtags:
+                    if t in grouped:
+                        warn(gline, f"tag_groups: the tag {t!r} is listed in more than one group")
+                    grouped.add(t)
+
     seen_slugs, seen_urls = {}, {}
+    used_tags = set()
     item_nodes = sites_node.value if isinstance(sites_node, yaml.SequenceNode) else [None] * len(sites)
     for n, (site, node) in enumerate(zip(sites, item_nodes), 1):
         line = _line_of(node)
@@ -158,6 +173,7 @@ def check_text(text: str):
             if not isinstance(tags, list):
                 err(_line_of(node, "tags"), f"{label}: `tags` must be a list")
             else:
+                used_tags.update(t for t in tags if isinstance(t, str))
                 for t in tags:
                     if not isinstance(t, str) or not t.strip() or "|" in t:
                         warn(_line_of(node, "tags"), f"{label}: tag {t!r} is ignored (it must be a non-empty string without `|`)")
@@ -172,6 +188,11 @@ def check_text(text: str):
         _check_rules(site.get("ignore"), _line_of(node, "ignore"), label + " ignore", err)
         _check_selectors(site.get("remove"), _line_of(node, "remove"), label + " remove", err)
 
+    if isinstance(groups, dict):
+        for t in sorted(used_tags - grouped):
+            warn(0, f"the tag {t!r} is in no group of `tag_groups` (it is shown after the groups)")
+        for t in sorted(grouped - used_tags):
+            warn(0, f"tag_groups lists {t!r}, which no site uses")
     for url, nums in seen_urls.items():
         if len(nums) > 1:
             warn(0, f"the URL {url} is listed {len(nums)} times (sites #{', #'.join(map(str, nums))})")

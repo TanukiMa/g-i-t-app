@@ -129,6 +129,19 @@ def parse_stalker_yaml(data_dir: str):
     return targets
 
 
+def configured_tag_groups(data_dir: str) -> list:
+    """[(group, [tag, ...])] from the optional top-level `tag_groups:` of config.yaml, in the order written (group name -> list
+    of tags). The filter bar and the site list show the tags under these headings; tags in no group follow without one."""
+    config = read_config(data_dir)
+    raw = config.get("tag_groups") if isinstance(config, dict) else None
+    groups = []
+    if isinstance(raw, dict):
+        for name, tags in raw.items():
+            if isinstance(tags, list):
+                groups.append((str(name), [str(t).strip() for t in tags if str(t).strip()]))
+    return groups
+
+
 # slug becomes a directory name and a URL path segment: ASCII only, no surprises across OSes/Git.
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 

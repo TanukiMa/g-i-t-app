@@ -28,7 +28,7 @@
     {% if tags %}
     <select id="filter-tag" aria-label="分類で絞り込む">
       <option value="">すべての分類</option>
-      {% for t in tags %}<option value="{{ t.name }}">{{ t.name }}（{{ t.count }}）</option>{% endfor %}
+      {% for t in tags %}{% if t.group and loop.changed(t.group) %}{% if not loop.first %}</optgroup>{% endif %}<optgroup label="{{ t.group }}">{% elif not t.group and not loop.first and tags[loop.index0 - 1].group %}</optgroup>{% endif %}<option value="{{ t.name }}">{{ t.name }}（{{ t.count }}）</option>{% if loop.last and t.group %}</optgroup>{% endif %}{% endfor %}
     </select>
     {% endif %}
     <span id="filter-count" class="filter-count" aria-live="polite"></span>

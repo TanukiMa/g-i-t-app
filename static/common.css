@@ -57,6 +57,7 @@ h1 .follow-btn { font-size: 0.8em; }
   border-radius: 2em; padding: 0.05em 0.7em;
 }
 .tag-list { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; font-size: 0.85rem; margin: 0 0 1rem; }
+.tag-group { flex-basis: 100%; margin-top: 0.4rem; font-size: 0.8rem; font-weight: 600; opacity: 0.75; }
 .tag-item { display: inline-flex; align-items: center; gap: 0.25em; }
 .tag-feed { text-decoration: none; }
 
