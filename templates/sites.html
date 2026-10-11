@@ -10,12 +10,6 @@
   </header>
   <a class="page-back" href="./">← 全体タイムラインへ戻る</a>
 
-  {% if tags %}
-  <div class="tag-list"><span class="muted">分類:</span>
-    {% for t in tags %}{% if t.group and loop.changed(t.group) %}<span class="tag-group">{{ t.group }}</span>{% endif %}<span class="tag-item"><span class="tag">{{ t.name }}（{{ t.count }}）</span><a class="tag-feed" href="{{ t.feed }}" title="「{{ t.name }}」の Atom フィード">📡</a></span>{% endfor %}
-  </div>
-  {% endif %}
-
   {{ filter_bar(tags, 'sites') }}
   <div id="content">
     {% for s in sites %}
@@ -37,5 +31,13 @@
     <p>記録対象サイトはまだ登録されていません。</p>
     {% endfor %}
   </div>
+  {% if tags %}
+  <section class="tag-feeds">
+  <h2>分類ごとの Atom フィード</h2>
+  <div class="tag-list">
+    {% for t in tags %}{% if t.group and loop.changed(t.group) %}<span class="tag-group">{{ t.group }}</span>{% endif %}<span class="tag-item"><span class="tag">{{ t.name }}（{{ t.count }}）</span><a class="tag-feed" href="{{ t.feed }}" title="「{{ t.name }}」の Atom フィード">📡 Atom</a></span>{% endfor %}
+  </div>
+  </section>
+  {% endif %}
   {{ footer() }}
 {% endblock %}
