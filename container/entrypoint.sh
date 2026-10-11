@@ -60,7 +60,7 @@ HELP
     ;;
     archive) cat <<'HELP'
 archive: register the URLs of archive_queue with the Internet Archive (Save Page Now).
-Needs: SUPABASE_URL SUPABASE_KEY IA_ACCESS_KEY IA_SECRET_KEY
+Needs: SUPABASE_URL SUPABASE_KEY IA_ACCESS_KEY IA_SECRET_KEY (optional: IA_ACCESS_KEY_2/IA_SECRET_KEY_2 ... up to _9, used when the one before is rate limited)
 Options (environment): ARCHIVE_BATCH_SIZE ARCHIVE_INTERVAL_SEC ARCHIVE_RUNTIME_MIN ARCHIVE_ANON_FALLBACK ...
 HELP
     ;;

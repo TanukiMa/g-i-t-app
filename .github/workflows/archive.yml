@@ -37,6 +37,11 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+          # More keys (optional): used one after the other, when the one before is rate limited. Unset secrets are empty.
+          IA_ACCESS_KEY_2: ${{ secrets.IA_ACCESS_KEY_2 }}
+          IA_SECRET_KEY_2: ${{ secrets.IA_SECRET_KEY_2 }}
+          IA_ACCESS_KEY_3: ${{ secrets.IA_ACCESS_KEY_3 }}
+          IA_SECRET_KEY_3: ${{ secrets.IA_SECRET_KEY_3 }}
           ARCHIVE_BATCH_SIZE: '20'
           ARCHIVE_INTERVAL_SEC: '15'
           ARCHIVE_RUNTIME_MIN: '60'
