@@ -195,15 +195,15 @@ DEFAULT_IGNORE_RULES = [
                    r"\?[A-Za-z_][A-Za-z0-9_-]*=(?:20[0-9]{12}|1[5-9][0-9]{8,11})[0-9]*",
         "replace": "$1",
     },
-    # Expiring "NEW" badges (<span class="new">NEW</span>, <b>New!</b>, 新着): they vanish after a few days
+    # Expiring "NEW" badges (<span class="new">NEW</span>, <b>New!!</b>, 新着): they vanish after a few days
     # and would be reported as a change. Only elements whose whole text is the badge are removed.
     {
-        "pattern": r"(?i)\s*<(?:span|em|strong|b|i|font|small|sup)\b[^>]*>\s*(?:new|ＮＥＷ|新着)\s*[!！]?\s*</(?:span|em|strong|b|i|font|small|sup)>",
+        "pattern": r"(?i)\s*<(?:span|em|strong|b|i|font|small|sup)\b[^>]*>\s*(?:new|ＮＥＷ|新着)\s*[!！]*\s*</(?:span|em|strong|b|i|font|small|sup)>",
         "replace": "",
     },
     # Badge images such as <img src="new.gif" alt="NEW">.
     {
-        "pattern": r"""(?i)\s*<img\b[^>]*\balt=["'](?:new|ＮＥＷ|新着)[!！]?["'][^>]*>""",
+        "pattern": r"""(?i)\s*<img\b[^>]*\balt=["'](?:new|ＮＥＷ|新着)[!！]*["'][^>]*>""",
         "replace": "",
     },
     # Cloudflare's e-mail protection re-encrypts every address with a new random key on each request:
