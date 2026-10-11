@@ -141,7 +141,7 @@ main { max-width: none; width: 100%; padding-inline: clamp(16px, 3vw, 56px); }
 #content > :not(.entry) { grid-column: 1 / -1; }   /* headings, row lists, notes span all columns */
 #content > .entry { margin: 0; min-width: 0; }
 .style-minimal #content { gap: 0 3rem; }          /* minimal: borderless entries separated by rules only */
-.prose, .gsearch, .site-footer { max-width: 60rem; }  /* running text stays readable */
+.gsearch, .site-footer { max-width: 60rem; }  /* .prose (About, guide, privacy) has no cap: it uses the full width */
 .site-footer { margin-inline: 0; }
 
 /* dashboard: the "latest update" card holds a full date and time, so its value is set smaller */
