@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sys
@@ -13,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 import yaml
 import check_config
+import json_records
 import provision
 from bs4 import BeautifulSoup
 from common import SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE
@@ -73,6 +75,8 @@ Write the summary in Japanese.
 - Report only substantive content changes: announcements, documents, guidelines, notices, dates, deadlines, \
 figures and names that were added, removed or revised. Quote concrete details (titles, dates, numbers) exactly \
 as they appear on the page.
+- If the lines are JSON records ({...}), the first two fields identify the record and the other fields are the ones that \
+changed: name the record (for example the product) in each bullet and say what changed from what.
 - Ignore markup, scripts, styling, navigation, counters and timestamps. \
 If nothing substantive changed, answer with exactly one line: 内容に実質的な変更はありません（表示の調整のみ）。
 - Do not explain terms, add background, speculate about meaning or impact, or address the reader.
@@ -110,6 +114,46 @@ def _has_content(text: str) -> bool:
     if _TAG_RE.sub("", text).strip():
         return True
     return "href=" in text or "src=" in text
+
+
+def _json_object(text: str):
+    """The dict of a line that is one JSON object (a record of a `json_records` file), else None."""
+    t = text.rstrip(",")
+    if not (t.startswith("{") and t.endswith("}")):
+        return None
+    try:
+        obj = json.loads(t)
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) and len(obj) >= 2 else None
+
+
+def compact_records(lines: list) -> list:
+    """[(sign, text)] with every changed record shown by its identity and the fields that changed.
+
+    A `json_records` file has one record per line, the label and id fields first. A record that was changed appears as a
+    removed and an added line with the same two first values: both lines are shortened to those two fields plus the fields
+    that differ, so that the AI sees `-{"product_nm": ..., "yj_cd": ..., "shipment_status_nm": "①通常出荷"}` /
+    `+{... "shipment_status_nm": "③限定出荷"}` instead of two lines of 700 characters. Records that were only added or
+    removed, ambiguous keys and every other kind of line are left as they are."""
+    parsed = [(sign, text, _json_object(text)) for sign, text in lines]
+    index = {"-": {}, "+": {}}
+    for i, (sign, _text, obj) in enumerate(parsed):
+        if obj is not None:
+            index[sign].setdefault(repr(tuple(list(obj.values())[:2])), []).append(i)
+    out = {i: text for i, (_sign, text, _obj) in enumerate(parsed)}
+    for key, minus in index["-"].items():
+        plus = index["+"].get(key)
+        if not plus or len(minus) != 1 or len(plus) != 1:
+            continue
+        old, new = parsed[minus[0]][2], parsed[plus[0]][2]
+        names = list(old)[:2]
+        changed = [k for k in dict.fromkeys([*old, *new]) if k not in names and old.get(k) != new.get(k)]
+        if not changed:
+            continue
+        out[minus[0]] = json.dumps({**{k: old[k] for k in names}, **{k: old.get(k) for k in changed}}, ensure_ascii=False)
+        out[plus[0]] = json.dumps({**{k: new[k] for k in names}, **{k: new.get(k) for k in changed}}, ensure_ascii=False)
+    return [(sign, out[i]) for i, (sign, _text, _obj) in enumerate(parsed)]
 
 
 class DiffAnalysis:
@@ -177,7 +221,8 @@ class DiffAnalysis:
         no text hunks at all (binary / mode change): use the raw diff then."""
         if not self.has_text_hunks:
             return None
-        return "\n".join(f"=== {path}\n" + "\n".join(f"{sign}{text}" for sign, text in lines) for path, lines in self.net_files)
+        return "\n".join(f"=== {path}\n" + "\n".join(f"{sign}{text}" for sign, text in compact_records(lines))
+                         for path, lines in self.net_files)
 
     def added_text(self) -> list:
         """Visible text that is added and not also removed. Markup, attributes and addresses do not count."""
@@ -504,8 +549,14 @@ def render_diff_html(commit_hash: str, data_dir: str, rel_site: str):
     return html.stdout
 
 
-def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report_reorder: bool = False):
+def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report_reorder: bool = False,
+                 display_url: str = "", records_spec=None):
     """Stalk one site and commit its changes as one commit. Returns a pending log record or None.
+
+    `display_url` (config.yaml) is the address shown to readers instead of the fetched one: the record's "url" (stored in
+    `updates`) is that address, while "fetch_url" (what is queued for the Internet Archive) stays the fetched address.
+    `records_spec` (`json_records` in config.yaml) stores a JSON data file one record per line (json_records.py), right
+    after the fetch and before git looks for changes, so that the diff names the records that changed.
 
     With rebaseline=True (the site's ignore rules were just changed) the resulting change is committed
     without a summary, diff page, database row or archive request.
@@ -537,6 +588,12 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report
     # 1. Execute website-stalker (reads ./website-stalker.yaml, writes fetched pages next to it)
     print(f"--- Running website-stalker in {site_path} ---")
     run_cmd(["website-stalker", "run", "--all"], cwd=site_path)
+    if records_spec:
+        try:
+            n = json_records.apply_to_site(site_path, records_spec)
+            print(f"json_records: {n} file(s) stored one record per line.")
+        except Exception as e:
+            print(f"json_records failed for {site_slug}: {e}")
 
     # 2. Any change inside this site's directory?
     status_res = git(["status", "--porcelain", "--", rel_site], data_dir)
@@ -597,7 +654,8 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report
     return {
         "site_slug": site_slug,
         "domain": domain,
-        "url": page_url,
+        "url": display_url or page_url,
+        "fetch_url": page_url,             # not a column of `updates`: main() takes it out before the insert
         "commit_hash": commit_hash,
         "summary": summary,                # None = to be summarized from raw_diff by main()
         "raw_diff": None if is_initial else raw_diff,
@@ -643,6 +701,13 @@ def main():
     # Step 2: One commit per changed site
     print("=== Step 2: Stalk & Process Sites ===")
     pending = []
+    try:
+        configured = provision.configured_sites(args.data_dir)
+        display_urls = {s["slug"]: s["url"] for s in configured if s["url"] != s["fetch_url"]}
+        records_specs = {s["slug"]: s["json_records"] for s in configured if s.get("json_records")}
+    except Exception as e:
+        print(f"display_url / json_records lookup skipped: {e}")
+        display_urls, records_specs = {}, {}
     sites_dir = os.path.join(args.data_dir, "sites")
     if os.path.exists(sites_dir):
         entries = [e for e in sorted(os.listdir(sites_dir)) if os.path.isdir(os.path.join(sites_dir, e))]
@@ -652,7 +717,9 @@ def main():
                 break
             try:
                 record = process_site(args.data_dir, entry, rebaseline=entry in rebaseline,
-                                      report_reorder=entry in report_reorder)
+                                      report_reorder=entry in report_reorder,
+                                      display_url=display_urls.get(entry, ""),
+                                      records_spec=records_specs.get(entry))
                 if record:
                     pending.append(record)
             except Exception as e:
@@ -669,12 +736,13 @@ def main():
     if pushed:
         for rec in pending:
             attachments = rec.pop("attachments")
+            fetch_url = rec.pop("fetch_url", rec["url"])
             raw_diff = rec.pop("raw_diff", None)
             todo = rec["summary"] is None
             rec["row_id"] = log_to_supabase({k: (SUMMARY_FAILED if todo and k == "summary" else v)
                                              for k, v in rec.items() if k != "row_id"})
             rec["raw_diff"] = raw_diff
-            enqueue_archives(rec["site_slug"], rec["commit_hash"], rec["url"], attachments)
+            enqueue_archives(rec["site_slug"], rec["commit_hash"], fetch_url, attachments)
 
         # Step 4a: summaries of the changed sites, several at a time
         todo = [r for r in pending if r["summary"] is None]

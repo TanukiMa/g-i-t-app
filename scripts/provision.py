@@ -144,7 +144,10 @@ def target_slug(target) -> str:
 
 
 def configured_sites(data_dir: str) -> list:
-    """[{slug, name, url, tags}] for every valid target in config.yaml; `name` falls back to the host name."""
+    """[{slug, name, url, fetch_url, tags, json_records}] for every valid target in config.yaml; `name` falls back to the host name.
+
+    `url` is the address shown to readers: the optional `display_url` (a page that shows what an API or data file
+    `url` delivers), else `url`. `fetch_url` is what is really fetched (and archived)."""
     sites = []
     for target in parse_stalker_yaml(data_dir):
         slug = target_slug(target)
@@ -154,7 +157,12 @@ def configured_sites(data_dir: str) -> list:
         name = (target.get("name") if isinstance(target, dict) else None) or urlparse(url).netloc.removeprefix("www.")
         raw_tags = target.get("tags") if isinstance(target, dict) else None
         tags = [str(t).strip() for t in raw_tags if str(t).strip() and "|" not in str(t)] if isinstance(raw_tags, list) else []
-        sites.append({"slug": slug, "name": str(name), "url": url, "tags": tags})
+        shown = target.get("display_url") if isinstance(target, dict) else None
+        shown = shown.strip() if isinstance(shown, str) and shown.strip() else url
+        records = target.get("json_records") if isinstance(target, dict) else None
+        records = records if isinstance(records, dict) and isinstance(records.get("id"), str) and records["id"] else None
+        sites.append({"slug": slug, "name": str(name), "url": shown, "fetch_url": url, "tags": tags,
+                      "json_records": records})
     return sites
 
 
@@ -167,7 +175,8 @@ def run_cmd(cmd, cwd=None):
 
 
 # G-I-T metadata in config.yaml; website-stalker rejects unknown keys, so these are never written out.
-RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "remove", "default_ignore", "report_reorder")
+RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "remove", "default_ignore", "report_reorder", "display_url",
+                 "json_records")
 
 # Rules applied to EVERY site unless it sets `default_ignore: false`. WordPress (and many CMSs) append a
 # changing number to static files, e.g. file.pdf?1700000001 or logo.png?ver=6.4.2, which would otherwise be

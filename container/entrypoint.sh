@@ -67,7 +67,9 @@ HELP
     raw) cat <<'HELP'
 raw: editor experiment. Fetch every site of config.yaml WITHOUT editors and commit the changes to g-i-t-data-raw.
 Does nothing unless RAW_EXPERIMENT=1 (keep it 0 normally: every site is fetched a second time).
-Needs: GH_PAT WEBSITE_STALKER_FROM    Options (environment): RAW_REPO RAW_WORKERS RAW_BUDGET_MIN
+The experiment ends by itself: RAW_DAYS (default 30) days after the first run, or RAW_DAYS x RAW_RUNS_PER_DAY (default 1) runs.
+RAW_SITES (comma separated slugs) limits it to some sites.
+Needs: GH_PAT WEBSITE_STALKER_FROM    Options (environment): RAW_REPO RAW_WORKERS RAW_BUDGET_MIN RAW_DAYS RAW_RUNS_PER_DAY RAW_SITES
 HELP
     ;;
     *) usage ;;

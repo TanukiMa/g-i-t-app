@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from provision import SLUG_RE, _UNSUPPORTED_REGEX, target_slug  # noqa: E402
 
 TOP_KEYS = {"sites", "ignore", "remove"}
-SITE_KEYS = {"url", "name", "slug", "tags", "ignore", "remove", "default_ignore", "report_reorder"}
+SITE_KEYS = {"url", "name", "slug", "tags", "ignore", "remove", "default_ignore", "report_reorder", "display_url", "json_records"}
 # Typographic quotes are almost always a paste from a word processor: they do not close a YAML string.
 TYPO_QUOTES = "“”‘’"   # curly double and single quotes
 TYPO_RE = re.compile("[" + TYPO_QUOTES + "]")
@@ -114,6 +114,28 @@ def check_text(text: str):
             if TYPO_RE.search(url):
                 err(_line_of(node, "url"), f"{label}: typographic quote inside the url")
             seen_urls.setdefault(url.strip(), []).append(n)
+
+        shown = site.get("display_url")
+        if shown is not None:
+            parsed = urlparse(shown.strip()) if isinstance(shown, str) else None
+            if parsed is None or parsed.scheme not in ("http", "https") or not parsed.netloc or " " in shown.strip():
+                err(_line_of(node, "display_url"), f"{label}: `display_url` must be a plain http(s) URL, got {shown!r}")
+            elif TYPO_RE.search(shown):
+                err(_line_of(node, "display_url"), f"{label}: typographic quote inside the display_url")
+
+        spec = site.get("json_records")
+        if spec is not None:
+            where = _line_of(node, "json_records")
+            if not isinstance(spec, dict):
+                err(where, f"{label}: `json_records` must be a mapping like {{id: yj_cd, label: product_nm}}")
+            else:
+                for key in spec:
+                    if key not in ("id", "label"):
+                        err(where, f"{label}: `json_records` has the unknown key `{key}` (only `id` and `label`)")
+                if not isinstance(spec.get("id"), str) or not spec["id"].strip():
+                    err(where, f"{label}: `json_records` needs `id:` (the field that identifies a record)")
+                if spec.get("label") is not None and not isinstance(spec["label"], str):
+                    err(where, f"{label}: `json_records.label` must be a field name")
 
         slug = target_slug(site) if isinstance(url, str) and url.strip() else ""
         if site.get("slug") is not None and not isinstance(site.get("slug"), str):

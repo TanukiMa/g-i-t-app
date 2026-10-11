@@ -11,6 +11,9 @@
 #   g-i-t-remake-dashboard  rebuild and publish the dashboard only: no fetching, no git push, no AI
 #   g-i-t-resummarize       regenerate stored summaries (give the options at run time:
 #                           gcloud run jobs execute g-i-t-resummarize --args="resummarize,--dry-run" ...)
+#   g-i-t-raw               editor experiment: fetch the sites WITHOUT editors into g-i-t-data-raw (scripts/raw_experiment.py).
+#                           It stops by itself after -RawDays days or -RawDays x -RawRunsPerDay runs; delete the job and its
+#                           Cloud Scheduler entry afterwards (gcloud run jobs delete g-i-t-raw ...). Not part of the default jobs.
 #   g-i-t-recover           recover the updates swallowed by Re-baseline commits (pushes diff pages to g-i-t-data;
 #                           gcloud run jobs execute g-i-t-recover --args="recover,--dry-run" ...)
 # SUPABASE_URL and WEBSITE_STALKER_FROM are read from the .env file (never printed). The secrets GH_PAT, GEMINI_API_KEY and
@@ -29,6 +32,9 @@ param(
     [string]$PwaPassphraseHash = '',
     [string]$GaMeasurementId = '',      # Google Analytics 4 (G-XXXXXXXXXX); empty = the value in .env, or off
     [string]$CfBeaconToken = '',        # Cloudflare Web Analytics; empty = the value in .env, or off
+    [string]$RawSites = '',             # job raw: comma separated slugs (empty = every site)
+    [int]$RawDays = 30,                 # job raw: length of the experiment
+    [int]$RawRunsPerDay = 1,            # job raw: runs per day (the limit is RawDays x RawRunsPerDay runs)
     [string[]]$ExtraEnv = @(),
     [string[]]$Jobs = @('stalk', 'remake-dashboard'),
     [string]$EnvFile = '.env',
@@ -38,7 +44,7 @@ $ErrorActionPreference = 'Stop'
 # "-File" hands a comma list over as ONE string ("a,b"): split it here
 $Jobs = @($Jobs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $DeployTargets = @($DeployTargets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-foreach ($j in $Jobs) { if ($j -notin 'stalk', 'remake-dashboard', 'resummarize', 'recover') { throw "unknown job '$j' (stalk, remake-dashboard, resummarize, recover)" } }
+foreach ($j in $Jobs) { if ($j -notin 'stalk', 'remake-dashboard', 'resummarize', 'recover', 'raw') { throw "unknown job '$j' (stalk, remake-dashboard, resummarize, recover, raw)" } }
 
 function Read-EnvValue([string]$name) {
     if (-not (Test-Path $EnvFile)) { throw "$EnvFile not found (run from the repository root, or pass -EnvFile)" }
@@ -62,7 +68,7 @@ $sa = "$ServiceAccount@$Project.iam.gserviceaccount.com"
 $supabaseUrl = Read-EnvValue 'SUPABASE_URL'
 
 # "^#^" makes # the separator of the list, because the values contain commas (DEPLOY_TARGETS) and @ (the e-mail address)
-function New-EnvArg([bool]$withFrom) {
+function New-EnvArg([bool]$withFrom, [string[]]$more = @()) {
     $pairs = @(
         "FIREBASE_PROJECT=$WebProject",
         "SITE_BASE_URL=$SiteBaseUrl",
@@ -75,6 +81,7 @@ function New-EnvArg([bool]$withFrom) {
     if ($GaMeasurementId) { $pairs += "GA_MEASUREMENT_ID=$GaMeasurementId" }
     if ($CfBeaconToken) { $pairs += "CF_BEACON_TOKEN=$CfBeaconToken" }
     if ($withFrom) { $pairs += "WEBSITE_STALKER_FROM=$(Read-EnvValue 'WEBSITE_STALKER_FROM')" }
+    $pairs += $more
     $pairs += $ExtraEnv
     return '^#^' + ($pairs -join '#')
 }
@@ -86,6 +93,9 @@ $definitions = @{
                  Secrets = 'GH_PAT=GH_PAT:latest,SUPABASE_KEY=SUPABASE_KEY:latest' }
     'resummarize' = @{ Name = 'g-i-t-resummarize'; Args = 'resummarize'; Timeout = '1800s'; From = $false
                  Secrets = 'GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_KEY=SUPABASE_KEY:latest' }
+    'raw' = @{ Name = 'g-i-t-raw'; Args = 'raw'; Timeout = '1500s'; From = $true
+                 Secrets = 'GH_PAT=GH_PAT:latest'
+                 More = @('RAW_EXPERIMENT=1', "RAW_DAYS=$RawDays", "RAW_RUNS_PER_DAY=$RawRunsPerDay", 'RAW_BUDGET_MIN=20') }
     'recover' = @{ Name = 'g-i-t-recover'; Args = 'recover'; Timeout = '2400s'; From = $false
                  Secrets = 'GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_KEY=SUPABASE_KEY:latest' }
 }
@@ -97,7 +107,7 @@ foreach ($key in $Jobs) {
     $verb = if ($exists) { 'update' } else { 'create' }
     $cli = @('run', 'jobs', $verb, $d.Name, '--image', $image, '--region', $Region, '--project', $Project,
              '--service-account', $sa, '--cpu', '1', '--memory', '1Gi', '--max-retries', '0', '--task-timeout', $d.Timeout,
-             '--set-env-vars', (New-EnvArg $d.From), '--set-secrets', $d.Secrets)
+             '--set-env-vars', (New-EnvArg $d.From (@($d.More) + $(if ($RawSites -and $key -eq 'raw') { @("RAW_SITES=$RawSites") } else { @() }))), '--set-secrets', $d.Secrets)
     if ($d.Args) { $cli += @('--args', $d.Args) }
     $shown = ($cli | ForEach-Object { if ($_ -like '^#^*') { '"<env: ' + ($_.Split('#').Count - 1) + ' variables, values not shown>"' } else { $_ } }) -join ' '
     Write-Host "[$verb] gcloud $shown"
