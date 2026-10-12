@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from provision import SLUG_RE, _UNSUPPORTED_REGEX, target_slug  # noqa: E402
 
 TOP_KEYS = {"sites", "ignore", "remove", "tag_groups"}
-SITE_KEYS = {"url", "name", "slug", "tags", "ignore", "remove", "default_ignore", "report_reorder", "display_url", "json_records"}
+SITE_KEYS = {"url", "name", "slug", "tags", "ignore", "remove", "default_ignore", "report_reorder", "display_url", "json_records", "paused"}
 # Typographic quotes are almost always a paste from a word processor: they do not close a YAML string.
 TYPO_QUOTES = "“”‘’"   # curly double and single quotes
 TYPO_RE = re.compile("[" + TYPO_QUOTES + "]")
@@ -178,7 +178,7 @@ def check_text(text: str):
                     if not isinstance(t, str) or not t.strip() or "|" in t:
                         warn(_line_of(node, "tags"), f"{label}: tag {t!r} is ignored (it must be a non-empty string without `|`)")
 
-        for flag in ("default_ignore", "report_reorder"):
+        for flag in ("default_ignore", "report_reorder", "paused"):
             if flag in site and not isinstance(site[flag], bool):
                 err(_line_of(node, flag), f"{label}: `{flag}` must be true or false")
         if site.get("ignore") is not None and not isinstance(site.get("ignore"), list):

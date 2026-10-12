@@ -705,12 +705,16 @@ def main():
         configured = provision.configured_sites(args.data_dir)
         display_urls = {s["slug"]: s["url"] for s in configured if s["url"] != s["fetch_url"]}
         records_specs = {s["slug"]: s["json_records"] for s in configured if s.get("json_records")}
+        paused = {s["slug"] for s in configured if s.get("paused")}
     except Exception as e:
         print(f"display_url / json_records lookup skipped: {e}")
-        display_urls, records_specs = {}, {}
+        display_urls, records_specs, paused = {}, {}, set()
+    if paused:
+        print(f"Paused (`paused: true` in config.yaml, not fetched): {', '.join(sorted(paused))}")
     sites_dir = os.path.join(args.data_dir, "sites")
     if os.path.exists(sites_dir):
-        entries = [e for e in sorted(os.listdir(sites_dir)) if os.path.isdir(os.path.join(sites_dir, e))]
+        entries = [e for e in sorted(os.listdir(sites_dir))
+                   if os.path.isdir(os.path.join(sites_dir, e)) and e not in paused]
         for done, entry in enumerate(entries):
             if time.monotonic() >= run_deadline(FETCH_RESERVE_MIN):
                 print(f"Run time budget used up: {len(entries) - done} site(s) are left for the next run.")
