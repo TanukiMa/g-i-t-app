@@ -150,10 +150,13 @@ def plain_summary(summary) -> str:
     return " ".join(line for line in lines if line)
 
 
-def build_search_index(sites: list, updates: list) -> str:
+def build_search_index(sites: list, updates: list, groups: list = ()) -> str:
     """JSON for the client-side full-text search: every site and every update summary, no server needed.
 
-    {"v":1,"sites":[[slug,name,url,[tags]]...],"updates":[[slug,"YYYY-MM-DD HH:MM",hash7,text,diff_file]...]}
+    {"v":1,"sites":[[slug,name,url,[tags]]...],"groups":[[heading,[tag...]]...],"updates":[[slug,"YYYY-MM-DD HH:MM",hash7,text,diff_file]...]}
+
+    `groups` = the `tag_groups` of config.yaml (headings and their tags, in the order written); the client apps use it to let
+    a user pick categories. A reader that does not know `groups` ignores it.
     """
     rows = []
     for u in updates:  # newest first
@@ -163,6 +166,7 @@ def build_search_index(sites: list, updates: list) -> str:
                          text, u.get("diff_file") or ""])
     return json.dumps({"v": 1,
                        "sites": [[s["slug"], s["name"], s.get("url", ""), s.get("tags", [])] for s in sites],
+                       "groups": [[g, list(names)] for g, names in groups],
                        "updates": rows}, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -795,7 +799,8 @@ def main():
     env.globals["asset_version"] = asset_version(static_dir) if os.path.isdir(static_dir) else ""
     generated = to_jst(datetime.now(timezone.utc))
     build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
-    tags = build_tag_infos(sites, configured_tag_groups(args.data_dir))
+    tag_groups = configured_tag_groups(args.data_dir)
+    tags = build_tag_infos(sites, tag_groups)
     base_url = os.environ.get("SITE_BASE_URL", SITE_BASE_URL)
     stats = {
         "updates": len(updates),
@@ -859,7 +864,7 @@ def main():
                   older=months[i + 1] if i + 1 < len(months) else None, **common))
 
     # Full-text search index (loaded by assets/app.js when the visitor starts searching)
-    write(os.path.join(public_dir, "search.json"), build_search_index(sites, updates))
+    write(os.path.join(public_dir, "search.json"), build_search_index(sites, updates, tag_groups))
 
     # feeds/status.json: what the client apps poll (one small file instead of one feed per followed site).
     # A rebuild without a run (--no-push) keeps the old time: "generated" tells a client that a RUN has finished.
