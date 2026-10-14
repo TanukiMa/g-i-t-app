@@ -462,7 +462,8 @@
         for (var i = 0; i < 7; i++) {
           var dd = new Date(w.start + i * DAY), gx = x0 + i * dayW;
           svg.appendChild(svgEl("line", { x1: gx, y1: y + 16, x2: gx, y2: axisY + 4, "class": "gtl-grid" }));
-          svg.appendChild(svgEl("text", { x: gx + 4, y: y + 28, "class": "gtl-dayname" }, DOW[dd.getUTCDay()] + " " + pad2(dd.getUTCMonth() + 1) + "/" + pad2(dd.getUTCDate())));
+          var dow = dd.getUTCDay();
+          svg.appendChild(svgEl("text", { x: gx + 4, y: y + 28, "class": "gtl-dayname" + (dow === 6 ? " gtl-sat" : dow === 0 ? " gtl-sun" : "") }, DOW[dow] + " " + pad2(dd.getUTCMonth() + 1) + "/" + pad2(dd.getUTCDate())));
         }
         svg.appendChild(svgEl("line", { x1: x1, y1: y + 16, x2: x1, y2: axisY + 4, "class": "gtl-grid" }));
         svg.appendChild(svgEl("line", { x1: x0, y1: axisY, x2: x1, y2: axisY, "class": "gtl-line" }));
