@@ -706,9 +706,10 @@ def main():
         display_urls = {s["slug"]: s["url"] for s in configured if s["url"] != s["fetch_url"]}
         records_specs = {s["slug"]: s["json_records"] for s in configured if s.get("json_records")}
         paused = {s["slug"] for s in configured if s.get("paused")}
+        no_archive = {s["slug"] for s in configured if s.get("archive") is False}
     except Exception as e:
         print(f"display_url / json_records lookup skipped: {e}")
-        display_urls, records_specs, paused = {}, {}, set()
+        display_urls, records_specs, paused, no_archive = {}, {}, set(), set()
     if paused:
         print(f"Paused (`paused: true` in config.yaml, not fetched): {', '.join(sorted(paused))}")
     sites_dir = os.path.join(args.data_dir, "sites")
@@ -746,7 +747,10 @@ def main():
             rec["row_id"] = log_to_supabase({k: (SUMMARY_FAILED if todo and k == "summary" else v)
                                              for k, v in rec.items() if k != "row_id"})
             rec["raw_diff"] = raw_diff
-            enqueue_archives(rec["site_slug"], rec["commit_hash"], fetch_url, attachments)
+            if rec["site_slug"] in no_archive:
+                print(f"Not queued for archiving (`archive: false`): {rec['site_slug']}")
+            else:
+                enqueue_archives(rec["site_slug"], rec["commit_hash"], fetch_url, attachments)
 
         # Step 4a: summaries of the changed sites, several at a time
         todo = [r for r in pending if r["summary"] is None]

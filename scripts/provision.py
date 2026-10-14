@@ -157,7 +157,7 @@ def target_slug(target) -> str:
 
 
 def configured_sites(data_dir: str) -> list:
-    """[{slug, name, url, fetch_url, tags, json_records, paused}] for every valid target in config.yaml; `name` falls back to the host name.
+    """[{slug, name, url, fetch_url, tags, json_records, paused, archive}] for every valid target in config.yaml; `name` falls back to the host name.
 
     `url` is the address shown to readers: the optional `display_url` (a page that shows what an API or data file
     `url` delivers), else `url`. `fetch_url` is what is really fetched (and archived)."""
@@ -175,8 +175,9 @@ def configured_sites(data_dir: str) -> list:
         records = target.get("json_records") if isinstance(target, dict) else None
         records = records if isinstance(records, dict) and isinstance(records.get("id"), str) and records["id"] else None
         paused = isinstance(target, dict) and target.get("paused") is True
+        archive = not (isinstance(target, dict) and target.get("archive") is False)
         sites.append({"slug": slug, "name": str(name), "url": shown, "fetch_url": url, "tags": tags,
-                      "json_records": records, "paused": paused})
+                      "json_records": records, "paused": paused, "archive": archive})
     return sites
 
 
@@ -190,7 +191,7 @@ def run_cmd(cmd, cwd=None):
 
 # G-I-T metadata in config.yaml; website-stalker rejects unknown keys, so these are never written out.
 RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "remove", "default_ignore", "report_reorder", "display_url",
-                 "json_records", "paused")
+                 "json_records", "paused", "archive")
 
 # Rules applied to EVERY site unless it sets `default_ignore: false`. WordPress (and many CMSs) append a
 # changing number to static files, e.g. file.pdf?1700000001 or logo.png?ver=6.4.2, which would otherwise be
