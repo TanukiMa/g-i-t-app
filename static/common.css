@@ -21,9 +21,14 @@
 }
 .filter-bar .seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600; }
 .filter-bar select {
-  font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--border);
+  font: inherit; color: var(--fg); background-color: var(--bg); border: 1px solid var(--border);
   border-radius: 2em; padding: 0.3em 0.9em; min-width: 0;
 }
+/* The opened list is drawn by the browser: with a transparent select it kept its own light
+   background while the text followed --fg, so in the dark theme it was pale text on white. */
+.filter-bar select option, .filter-bar select optgroup { color: var(--fg); background-color: var(--bg); }
+.filter-bar select optgroup { font-weight: 700; }
+.filter-bar select option { font-weight: 400; }
 .filter-bar .pill-btn {
   font: inherit; color: var(--muted); background: transparent; border: 1px solid var(--border);
   border-radius: 2em; padding: 0.3em 0.9em; cursor: pointer;
