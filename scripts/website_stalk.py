@@ -58,6 +58,16 @@ def run_deadline(reserve_min: float) -> float:
 
 BACKFILL_LIMIT = int(os.environ.get("SUMMARY_BACKFILL_LIMIT", "10"))
 
+# A server (or the CDN in front of it) sometimes answers 200 with a page whose body is empty. Such a page is not an
+# update: it is fetched again BLANK_RETRIES times, and a page that is still blank is not recorded the first time
+# (a marker file says so; a second blank run in a row is recorded, the page may really have been emptied).
+BLANK_RETRIES = int(os.environ.get("BLANK_RETRIES", "2"))
+BLANK_RETRY_WAIT_SEC = float(os.environ.get("BLANK_RETRY_WAIT_SEC", "30"))
+BLANK_MARKER = ".suspect-blank"
+BLANK_MIN_OLD_CHARS = 500    # the stored page had at least this much visible text ...
+BLANK_MAX_RATIO = 50         # ... and the new one has less than 1/50 of it (and under BLANK_MAX_NEW_CHARS)
+BLANK_MAX_NEW_CHARS = 200
+
 MAX_DIFF_CHARS = 10000
 
 # Instructions are written in English (models follow them most precisely) while the output is Japanese.
@@ -555,6 +565,46 @@ def render_diff_html(commit_hash: str, data_dir: str, rel_site: str):
     return html.stdout
 
 
+def visible_len(text: str) -> int:
+    """Number of visible characters of an HTML (or plain) text: no tags, scripts, styles or white space."""
+    text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", text)
+    text = re.sub(r"(?s)<[^>]*>", " ", text)
+    return len("".join(text.split()))
+
+
+def blanked_files(data_dir: str, rel_site: str) -> list:
+    """[(path, old, new)] for stored page files that were just rewritten to (almost) no visible text although the
+    committed version had plenty: the signature of an empty answer from the server, not of an update."""
+    found = []
+    for path in git(["diff", "--name-only", "--", rel_site], data_dir).stdout.splitlines():
+        path = path.strip()
+        if not path or os.path.basename(path) in ("website-stalker.yaml", BLANK_MARKER):
+            continue
+        try:
+            with open(os.path.join(data_dir, path), encoding="utf-8", errors="replace") as f:
+                new_len = visible_len(f.read())
+        except OSError:
+            continue
+        old_len = visible_len(git(["show", f"HEAD:{path}"], data_dir).stdout)
+        if old_len >= BLANK_MIN_OLD_CHARS and new_len < BLANK_MAX_NEW_CHARS and new_len * BLANK_MAX_RATIO < old_len:
+            found.append((path, old_len, new_len))
+    return found
+
+
+def describe_response(url: str, headers: list) -> str:
+    """One plain request with the site's headers, for the log: what does the server answer right now?"""
+    try:
+        sent = {k.strip(): v.strip() for k, _, v in (h.partition(":") for h in headers if ":" in h)}
+        if os.environ.get("WEBSITE_STALKER_FROM"):
+            sent.setdefault("From", os.environ["WEBSITE_STALKER_FROM"])
+        r = requests.get(url, headers=sent, timeout=20)
+        keep = {k: r.headers[k] for k in ("Server", "Content-Type", "Content-Length", "X-Cache", "Via", "Age", "Cache-Control")
+                if k in r.headers}
+        return f"HTTP {r.status_code}, {len(r.content)} bytes, visible text {visible_len(r.text)} chars, {keep}"
+    except Exception as e:
+        return f"diagnostic request failed: {e}"
+
+
 def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report_reorder: bool = False,
                  display_url: str = "", records_spec=None):
     """Stalk one site and commit its changes as one commit. Returns a pending log record or None.
@@ -576,12 +626,13 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report
         return None
 
     # Extract target URL from config
-    target_url = ""
+    target_url, site_headers = "", []
     try:
         with open(config_file, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
             if isinstance(cfg, dict) and "sites" in cfg and len(cfg["sites"]) > 0:
                 target_url = cfg["sites"][0].get("url", "")
+                site_headers = [h for h in (cfg["sites"][0].get("headers") or []) if isinstance(h, str)]
     except Exception as e:
         print(f"Error reading {config_file}: {e}")
 
@@ -593,13 +644,47 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report
 
     # 1. Execute website-stalker (reads ./website-stalker.yaml, writes fetched pages next to it)
     print(f"--- Running website-stalker in {site_path} ---")
-    run_cmd(["website-stalker", "run", "--all"], cwd=site_path)
-    if records_spec:
-        try:
-            n = json_records.apply_to_site(site_path, records_spec)
-            print(f"json_records: {n} file(s) stored one record per line.")
-        except Exception as e:
-            print(f"json_records failed for {site_slug}: {e}")
+
+    def fetch():
+        run_cmd(["website-stalker", "run", "--all"], cwd=site_path)
+        if records_spec:
+            try:
+                n = json_records.apply_to_site(site_path, records_spec)
+                print(f"json_records: {n} file(s) stored one record per line.")
+            except Exception as e:
+                print(f"json_records failed for {site_slug}: {e}")
+
+    fetch()
+
+    # An empty answer is not an update (see BLANK_RETRIES): fetch again, and if the page is still blank do not record it
+    # the first time. The marker file (committed) remembers the suspicion until the next run.
+    if not is_initial:
+        blank = blanked_files(data_dir, rel_site)
+        for attempt in range(1, BLANK_RETRIES + 1):
+            if not blank:
+                break
+            path, old_len, new_len = blank[0]
+            print(f"{site_slug}: the page has {new_len} visible characters instead of {old_len} (an empty answer?). "
+                  f"Server now: {describe_response(target_url, site_headers)}")
+            print(f"{site_slug}: fetching again in {BLANK_RETRY_WAIT_SEC:g} s ({attempt}/{BLANK_RETRIES}).")
+            time.sleep(BLANK_RETRY_WAIT_SEC)
+            fetch()
+            blank = blanked_files(data_dir, rel_site)
+        rel_marker = f"{rel_site}/{BLANK_MARKER}"
+        suspected = os.path.exists(os.path.join(data_dir, rel_marker))
+        if blank and not suspected:
+            print(f"{site_slug}: still blank: not recorded this time (a second blank run in a row is recorded).")
+            git(["checkout", "--", rel_site], data_dir)
+            with open(os.path.join(data_dir, rel_marker), "w", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+            git(["add", "--", rel_marker], data_dir)
+            git(["commit", "-m", f"Suspect blank response of {site_slug} (not recorded as an update)", "--only", "--", rel_marker], data_dir)
+            return None
+        if suspected:
+            print(f"{site_slug}: {'blank again, so it is recorded' if blank else 'the page is back to normal'}; "
+                  "clearing the suspicion.")
+            git(["rm", "-q", "-f", "--", rel_marker], data_dir)
+            git(["commit", "-m", f"Clear blank-response suspicion of {site_slug}", "--only", "--", rel_marker], data_dir)
 
     # 2. Any change inside this site's directory?
     status_res = git(["status", "--porcelain", "--", rel_site], data_dir)
