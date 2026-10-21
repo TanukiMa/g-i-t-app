@@ -1,3 +1,5 @@
+backup-blank-queue.json
+backup-blank-updates.json
 scripts/__pycache__
 supabase/
 .env
