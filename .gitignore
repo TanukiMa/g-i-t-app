@@ -3,3 +3,4 @@ backup-blank-updates.json
 scripts/__pycache__
 supabase/
 .env
+backup-blank-*.json

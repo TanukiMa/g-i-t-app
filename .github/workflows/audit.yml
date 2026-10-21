@@ -1,0 +1,43 @@
+name: Dependency Audit
+
+# Looks for known vulnerabilities (pip-audit for requirements.txt, npm audit for the Node tools baked into the
+# container image). A finding fails the run, so GitHub sends the usual "workflow failed" mail.
+on:
+  schedule:
+    # Every Monday 06:40 JST (= Sunday 21:40 UTC), an off-peak minute
+    - cron: '40 21 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Run pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --strict
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # The tools are installed globally in the image (container/Dockerfile), so there is no package.json:
+      # resolve the same packages into a scratch project and audit its lock file.
+      - name: Run npm audit
+        run: |
+          mkdir /tmp/npm-audit && cd /tmp/npm-audit
+          npm init -y > /dev/null
+          npm install --package-lock-only diff2html-cli firebase-tools wrangler
+          npm audit --audit-level=high

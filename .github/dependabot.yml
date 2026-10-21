@@ -1,0 +1,32 @@
+# Dependabot: pull requests for outdated or vulnerable dependencies (weekly, Monday JST morning).
+# Also enable "Dependabot alerts" and "Dependabot security updates" in the repository settings
+# (Settings > Code security); this file only configures the version updates.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+
+  # container/Dockerfile: base images
+  - package-ecosystem: docker
+    directory: /container
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 3
