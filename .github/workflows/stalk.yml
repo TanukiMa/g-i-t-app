@@ -27,14 +27,6 @@ jobs:
           fetch-depth: 0
           path: data
 
-      - name: Setup Node.js (for diff2html)
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-
-      - name: Install diff2html-cli
-        run: npm install -g diff2html-cli
-
       - name: Setup Python
         uses: actions/setup-python@v7
         with:

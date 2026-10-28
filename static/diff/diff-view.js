@@ -21,7 +21,7 @@
       return res.text();
     })
     .then(function (text) {
-      var ui = new Diff2HtmlUI(target, text, { drawFileList: true, matching: "none", outputFormat: "side-by-side" });
+      var ui = new Diff2HtmlUI(target, text, { drawFileList: true, matching: "none", outputFormat: "side-by-side", colorScheme: "auto" });
       ui.draw();
       ui.fileListToggle(false);
       ui.fileContentToggle();

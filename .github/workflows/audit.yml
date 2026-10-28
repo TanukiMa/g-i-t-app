@@ -39,5 +39,5 @@ jobs:
         run: |
           mkdir /tmp/npm-audit && cd /tmp/npm-audit
           npm init -y > /dev/null
-          npm install --package-lock-only diff2html-cli firebase-tools wrangler
+          npm install --package-lock-only firebase-tools wrangler
           npm audit --audit-level=high

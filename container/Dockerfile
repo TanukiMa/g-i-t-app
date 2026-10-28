@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# G醫t pipeline image: website-stalker + Python dependencies + diff2html + the CLI of ONE deploy target.
+# G醫t pipeline image: website-stalker + Python dependencies + the CLI of ONE deploy target.
 # The image holds only tools and dependencies; the code of g-i-t-app is fetched at start (container/bootstrap.sh).
 #
 # Build from the repository root (the build context; from container/ the COPY of requirements.txt fails), choose the target with
@@ -39,7 +39,6 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 LAN
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv tini \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN npm install -g diff2html-cli && npm cache clean --force
 COPY --from=stalker /out/bin/website-stalker /usr/local/bin/website-stalker
 
 # Dependencies only. The application code (scripts, templates, static, container/entrypoint.sh) is fetched
