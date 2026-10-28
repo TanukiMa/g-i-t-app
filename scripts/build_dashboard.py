@@ -395,14 +395,14 @@ DIFF_STYLE = (
 _DIFF_OLD_NAV = re.compile(r"<!--git-nav-->.*?</nav>", re.S)
 
 
-def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
+def decorate_diff_pages(public_dir: str, names: dict, updates: list, only=None) -> int:
     """Make every diff page understandable on its own.
 
     diff2html writes a standalone page headed "Diff to HTML by rtfpessoa". Here that heading is replaced by
     what the visitor needs: which site and update this is, when, the monitored page, the commit and the AI
     summary, plus how to read the two columns. A link bar leads back, and the credit moves to the footer.
     Done for all existing diff pages (also those of earlier runs); the marker keeps it idempotent.
-    Returns the number of pages changed.
+    only: the paths to work on (None = all). Returns the number of pages changed.
     """
     by_key = {(u.get("site_slug"), str(u.get("commit_hash", ""))[:7]): u for u in updates}
     sites_root = os.path.join(public_dir, "sites")
@@ -413,6 +413,8 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
             if not (name.startswith("diff_") and name.endswith(".html")):
                 continue
             path = os.path.join(folder, name)
+            if only is not None and path not in only:
+                continue
             with open(path, "r", encoding="utf-8") as f:
                 page = f.read()
             if DIFF_MARK in page:
@@ -481,7 +483,7 @@ _INLINE_BLOCK = re.compile(r"<(style|script)>(.*?)</" + chr(92) + r"1>", re.S)
 SHARED_STYLE_MIN, SHARED_SCRIPT_MIN = 5000, 50000   # our own DIFF_STYLE (~2 KB) and the small scripts stay inline
 
 
-def externalize_diff_assets(public_dir: str) -> int:
+def externalize_diff_assets(public_dir: str, only=None) -> int:
     """Move the big inline <style> / <script> of every diff page to files shared by all pages. Returns pages changed."""
     sites_root = os.path.join(public_dir, "sites")
     if not os.path.isdir(sites_root):
@@ -517,6 +519,8 @@ def externalize_diff_assets(public_dir: str) -> int:
             if not (name.startswith("diff_") and name.endswith(".html")):
                 continue
             path = os.path.join(folder, name)
+            if only is not None and path not in only:
+                continue
             with open(path, "r", encoding="utf-8", newline="") as f:
                 page = f.read()
             new = _INLINE_BLOCK.sub(swap, page)
@@ -525,6 +529,47 @@ def externalize_diff_assets(public_dir: str) -> int:
                     f.write(new)
                 changed += 1
     return changed
+
+
+# A diff page is a record: once it has been made it is not touched again. The marker DIFF_MARK (written by
+# decorate_diff_pages) tells a finished page; the build decorates, shares the style and script of, and adds the
+# canonical link to the pages that do not have it yet (those of this run), and leaves every other page as it is, so
+# a change of the design, the domain or this script never rewrites the past. MIGRATE_DIFF_PAGES=1 (or
+# --migrate-diff-pages) works on all pages once, for such a deliberate change.
+
+def diff_page_paths(public_dir: str):
+    sites_root = os.path.join(public_dir, "sites")
+    for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
+        folder = os.path.join(sites_root, slug)
+        if os.path.isdir(folder):
+            for name in sorted(os.listdir(folder)):
+                if name.startswith("diff_") and name.endswith(".html"):
+                    yield os.path.join(folder, name)
+
+
+def select_diff_pages(public_dir: str, migrate: bool):
+    """(pages to work on, pages left alone). With migrate every page is worked on."""
+    fresh, frozen = set(), []
+    for path in diff_page_paths(public_dir):
+        if migrate:
+            fresh.add(path)
+            continue
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            page = f.read()
+        (frozen.append(path) if DIFF_MARK in page else fresh.add(path))
+    return fresh, frozen
+
+
+def count_unshared(paths) -> int:
+    """How many of the finished pages still carry their own copy of the style and script (made before they were shared)."""
+    n = 0
+    for path in paths:
+        if os.path.getsize(path) < 250_000:
+            continue
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            if SHARED_DIFF_DIR.replace(os.sep, "/") + "/" not in f.read(40_000):
+                n += 1
+    return n
 
 
 def normalize_legacy_summaries(updates: list) -> int:
@@ -672,7 +717,7 @@ def write(path: str, content: str):
     print(f"Generated {path}")
 
 
-def canonicalize_diff_pages(public_dir: str, base) -> int:
+def canonicalize_diff_pages(public_dir: str, base, only=None) -> int:
     """The diff pages are written by diff2html and decorated earlier (decorate_diff_pages): give them the canonical link too.
     Only a page that changes is written again. Returns how many."""
     changed = 0
@@ -687,6 +732,8 @@ def canonicalize_diff_pages(public_dir: str, base) -> int:
             if not (name.startswith("diff_") and name.endswith(".html")):
                 continue
             path = os.path.join(folder, name)
+            if only is not None and path not in only:
+                continue
             with open(path, "r", encoding="utf-8", newline="") as f:
                 page = f.read()
             new = inject_canonical(page, f"sites/{slug}/{name}", base)
@@ -814,7 +861,12 @@ def main():
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
     parser.add_argument("--no-push", action="store_true",
                         help="only write public/: no commit, no push (also DASHBOARD_NO_PUSH=1); for a rebuild after a change of templates or scripts")
+    parser.add_argument("--migrate-diff-pages", action="store_true",
+                        help="work on ALL diff pages (decorate, share style and script, canonical link); by default only the pages "
+                             "of this run are made and every finished page is left as it is (also MIGRATE_DIFF_PAGES=1)")
     args = parser.parse_args()
+    if os.environ.get("MIGRATE_DIFF_PAGES", "").strip().lower() in ("1", "true", "yes", "on"):
+        args.migrate_diff_pages = True
     if os.environ.get("DASHBOARD_NO_PUSH", "").strip().lower() in ("1", "true", "yes", "on"):
         args.no_push = True
 
@@ -855,11 +907,18 @@ def main():
                        initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
                        analytics=analytics_settings())
 
-    print(f"Decorated {decorate_diff_pages(public_dir, names, updates)} diff page(s).")
-    print(f"Moved the shared style and script out of {externalize_diff_assets(public_dir)} diff page(s).")
+    fresh, frozen = select_diff_pages(public_dir, args.migrate_diff_pages)
+    print(f"Diff pages: {len(fresh)} to make{' (all of them: --migrate-diff-pages)' if args.migrate_diff_pages else ''}, "
+          f"{len(frozen)} finished ones left as they are.")
+    print(f"Decorated {decorate_diff_pages(public_dir, names, updates, only=fresh)} diff page(s).")
+    print(f"Moved the shared style and script out of {externalize_diff_assets(public_dir, only=fresh)} diff page(s).")
     _canon["base"], _canon["public"] = canonical_base(), public_dir
     print(f"Canonical address: {_canon['base'] or '(none: SITE_BASE_URL is GitHub Pages or local)'}; "
-          f"{canonicalize_diff_pages(public_dir, _canon['base'])} diff page(s) changed.")
+          f"{canonicalize_diff_pages(public_dir, _canon['base'], only=fresh)} diff page(s) changed.")
+    unshared = count_unshared(frozen)
+    if unshared:
+        print(f"{unshared} finished diff page(s) still hold their own copy of the style and script (about 300 KB each, in memory "
+              f"in the container): run once with MIGRATE_DIFF_PAGES=1 to share them.")
 
     env.globals["asset_version"] = asset_version(static_dir) if os.path.isdir(static_dir) else ""
     generated = to_jst(datetime.now(timezone.utc))
