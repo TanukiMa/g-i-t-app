@@ -207,6 +207,10 @@ git config --global user.email "g-i-t-bot@users.noreply.github.com"
 git config --global core.quotepath false
 
 mkdir -p /work && cd /work || exit 1
+# build_dashboard.py writes this file when it has written every page. No file = the build died (out of memory, an error):
+# public/ is then old or half rewritten, and it is NOT deployed.
+export DASHBOARD_DONE_FILE=/work/.dashboard-built
+rm -f "$DASHBOARD_DONE_FILE"
 # Partial clone: full commit history, file contents (blobs) are fetched when needed.
 if [ "$cmd" = "remake-dashboard" ]; then
   # Only the latest files are needed: public/ (with the diff pages) is read, the dashboard rewritten, nothing pushed.
@@ -254,9 +258,13 @@ deploy_cloudflare_pages() {
   WRANGLER_SEND_METRICS=false wrangler pages deploy data/public     --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch "${CLOUDFLARE_PAGES_BRANCH:-main}" --commit-dirty=true
 }
 
-# Deploy whenever a dashboard exists, also after a partial failure (the exit status still reports it).
+# Deploy whenever the dashboard was built to the end, also after a partial failure elsewhere (the exit status still
+# reports it). A build that did not finish is not deployed: its public/ is the old one, possibly half rewritten.
 # One failing target does not stop the others.
-if [ -f data/public/index.html ]; then
+if [ ! -f "$DASHBOARD_DONE_FILE" ]; then
+  echo "The dashboard build did not finish (no $DASHBOARD_DONE_FILE): nothing is deployed, the sites keep the pages they have." >&2
+  status=1
+elif [ -f data/public/index.html ]; then
   for t in ${DEPLOY_TARGETS//,/ }; do
     echo "=== Deploy: $t ==="
     if "deploy_${t//-/_}"; then echo "Deploy $t: ok"; else echo "Deploy $t: FAILED" >&2; status=1; fi

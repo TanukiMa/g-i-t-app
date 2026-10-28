@@ -472,6 +472,61 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list) -> int:
     return changed
 
 
+# diff2html writes its whole style sheet (~17 KB) and script bundle (~300 KB) into every page. That is >90% of each page,
+# and the container's file system lives in memory (1 GiB), so hundreds of pages used up the memory of the run. Both are
+# the same in every page: they are written once to assets/diff/ (named by content) and the pages link to them.
+SHARED_DIFF_DIR = os.path.join("assets", "diff")
+# One pattern for both: the leftmost block wins and its content is not scanned again (the script bundle contains the text "<style").
+_INLINE_BLOCK = re.compile(r"<(style|script)>(.*?)</" + chr(92) + r"1>", re.S)
+SHARED_STYLE_MIN, SHARED_SCRIPT_MIN = 5000, 50000   # our own DIFF_STYLE (~2 KB) and the small scripts stay inline
+
+
+def externalize_diff_assets(public_dir: str) -> int:
+    """Move the big inline <style> / <script> of every diff page to files shared by all pages. Returns pages changed."""
+    sites_root = os.path.join(public_dir, "sites")
+    if not os.path.isdir(sites_root):
+        return 0
+    shared_dir = os.path.join(public_dir, SHARED_DIFF_DIR)
+    written = set()
+
+    def shared(text: str, ext: str) -> str:
+        name = f"diff2html-{hashlib.sha1(text.encode('utf-8')).hexdigest()[:10]}.{ext}"
+        if name not in written:
+            os.makedirs(shared_dir, exist_ok=True)
+            path = os.path.join(shared_dir, name)
+            if not os.path.isfile(path):
+                with open(path, "w", encoding="utf-8", newline="") as f:
+                    f.write(text)
+            written.add(name)
+        return f"../../{SHARED_DIFF_DIR.replace(os.sep, '/')}/{name}"
+
+    def swap(m):
+        tag, body = m.group(1), m.group(2)
+        if tag == "style" and len(body) >= SHARED_STYLE_MIN:
+            return f'<link rel="stylesheet" href="{shared(body, "css")}">'
+        if tag == "script" and len(body) >= SHARED_SCRIPT_MIN:
+            return f'<script src="{shared(body, "js")}"></script>'
+        return m.group(0)
+
+    changed = 0
+    for slug in os.listdir(sites_root):
+        folder = os.path.join(sites_root, slug)
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            if not (name.startswith("diff_") and name.endswith(".html")):
+                continue
+            path = os.path.join(folder, name)
+            with open(path, "r", encoding="utf-8", newline="") as f:
+                page = f.read()
+            new = _INLINE_BLOCK.sub(swap, page)
+            if new != page:
+                with open(path, "w", encoding="utf-8", newline="") as f:
+                    f.write(new)
+                changed += 1
+    return changed
+
+
 def normalize_legacy_summaries(updates: list) -> int:
     """Show the first-snapshot rows written with an older text as the current SUMMARY_INITIAL (Supabase is not touched)."""
     n = 0
@@ -748,6 +803,12 @@ def build_sitemap(base: str, sites: list, months: list, weeks: list, updates: li
     return "\n".join(lines) + "\n"
 
 
+def done_file():
+    """DASHBOARD_DONE_FILE: a file outside the repository that proves a build ran to the end (container/entrypoint.sh
+    deploys only when it exists, so a build that died, e.g. out of memory, never publishes the old pages as if new)."""
+    return os.environ.get("DASHBOARD_DONE_FILE", "").strip()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build static dashboard for G-I-T")
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
@@ -756,6 +817,9 @@ def main():
     args = parser.parse_args()
     if os.environ.get("DASHBOARD_NO_PUSH", "").strip().lower() in ("1", "true", "yes", "on"):
         args.no_push = True
+
+    if done_file() and os.path.isfile(done_file()):
+        os.remove(done_file())  # never a leftover of an earlier build
 
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     templates_dir = os.path.join(app_dir, "templates")
@@ -792,6 +856,7 @@ def main():
                        analytics=analytics_settings())
 
     print(f"Decorated {decorate_diff_pages(public_dir, names, updates)} diff page(s).")
+    print(f"Moved the shared style and script out of {externalize_diff_assets(public_dir)} diff page(s).")
     _canon["base"], _canon["public"] = canonical_base(), public_dir
     print(f"Canonical address: {_canon['base'] or '(none: SITE_BASE_URL is GitHub Pages or local)'}; "
           f"{canonicalize_diff_pages(public_dir, _canon['base'])} diff page(s) changed.")
@@ -893,6 +958,10 @@ def main():
     if canon:
         write(os.path.join(public_dir, "sitemap.xml"), build_sitemap(canon, sites, months, weeks, updates))
         write(os.path.join(public_dir, "robots.txt"), f"User-agent: *\nAllow: /\n\nSitemap: {canon}sitemap.xml\n")
+
+    if done_file():  # every page is written: the result can be deployed, whatever happens to the commit and push below
+        with open(done_file(), "w", encoding="utf-8") as f:
+            f.write(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") + chr(10))
 
     if args.no_push:
         print("--no-push: public/ is written, nothing is committed or pushed.")
