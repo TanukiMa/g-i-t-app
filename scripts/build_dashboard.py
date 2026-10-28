@@ -370,6 +370,8 @@ def attach_diff_pages(updates, public_dir: str):
 
 
 DIFF_MARK = "<!--git-diff-v2-->"
+DIFF_MARK_V3 = "<!--git-diff-v3-->"     # a diff page that is only a view: the record is diff_<hash7>.patch.txt next to it
+PATCH_SUFFIX = ".patch.txt"
 DIFF_STYLE = (
     "<style>"
     ".git-nav{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;align-items:center;margin:0;padding:.6rem 1rem;"
@@ -393,6 +395,44 @@ DIFF_STYLE = (
     "</style>"
 )
 _DIFF_OLD_NAV = re.compile(r"<!--git-nav-->.*?</nav>", re.S)
+
+
+def diff_head_foot(slug: str, hash7: str, names: dict, by_key: dict, mark: str):
+    """(site name, update time, header html, footer html) of a diff page: link bar, what/when/where, the AI summary."""
+    site = html.escape(names.get(slug, slug))
+    upd = by_key.get((slug, hash7))
+    when = html.escape(to_jst(upd["created_at"])) if upd else ""
+
+    rows = []
+    if when:
+        rows.append(f"<dt>更新日時</dt><dd>{when}</dd>")
+    if upd and upd.get("url"):
+        url = html.escape(upd["url"], quote=True)
+        rows.append(f'<dt>確認先のページ</dt><dd><a href="{url}" target="_blank" rel="noopener noreferrer">{url}</a></dd>')
+    if upd and upd.get("commit_hash"):
+        commit = html.escape(str(upd["commit_hash"]), quote=True)
+        rows.append(f'<dt>記録</dt><dd><a href="{DATA_REPO_URL}/commit/{commit}" target="_blank" '
+                    f'rel="noopener noreferrer">commit {commit[:7]}</a></dd>')
+    summary = ""
+    text = (upd or {}).get("summary") or ""
+    if text and text not in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
+        by = summary_by((upd or {}).get("summary_model"))
+        by_note = f'<p class="by">{html.escape(by)}</p>' if by else ""
+        summary = (f'<details open><summary>AI による要約</summary>{render_markdown(text)}{by_note}'
+                   '<p class="how">AI の要約は誤りを含むことがあります。下の差分、または確認先のページで確かめてください。</p></details>')
+    head = (f'{mark}<nav class="git-nav">'
+            f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
+            f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
+            f'<a href="../../">全体タイムライン</a>'
+            f'<a href="../../sites.html">サイト一覧</a></nav>'
+            f'<header class="git-head"><h1>{site} の更新差分</h1>'
+            f'<dl>{"".join(rows)}</dl>{summary}'
+            f'<p class="how">ページのテキストの、前回の確認との違いです。左が変更前、右が変更後で、'
+            f'<strong>緑</strong>が追加、<strong>赤</strong>が削除された部分です。</p></header>')
+    foot = ('<footer class="git-foot"><p>G醫t が記録した差分です。'
+            f'<a href="../../about.html">G醫tについて</a> ・ <a href="../../">全体タイムライン</a></p>'
+            '<p>差分の表示: Diff to HTML by <a href="https://github.com/rtfpessoa">rtfpessoa</a>（diff2html）</p></footer>')
+    return site, when, head, foot
 
 
 def decorate_diff_pages(public_dir: str, names: dict, updates: list, only=None) -> int:
@@ -429,40 +469,7 @@ def decorate_diff_pages(public_dir: str, names: dict, updates: list, only=None) 
                 continue
             page = _DIFF_OLD_NAV.sub("", page)      # bar of the first version of this feature
             hash7 = name[5:-5]
-            site = html.escape(names.get(slug, slug))
-            upd = by_key.get((slug, hash7))
-            when = html.escape(to_jst(upd["created_at"])) if upd else ""
-
-            rows = []
-            if when:
-                rows.append(f"<dt>更新日時</dt><dd>{when}</dd>")
-            if upd and upd.get("url"):
-                url = html.escape(upd["url"], quote=True)
-                rows.append(f'<dt>確認先のページ</dt><dd><a href="{url}" target="_blank" rel="noopener noreferrer">{url}</a></dd>')
-            if upd and upd.get("commit_hash"):
-                commit = html.escape(str(upd["commit_hash"]), quote=True)
-                rows.append(f'<dt>記録</dt><dd><a href="{DATA_REPO_URL}/commit/{commit}" target="_blank" '
-                            f'rel="noopener noreferrer">commit {commit[:7]}</a></dd>')
-            summary = ""
-            text = (upd or {}).get("summary") or ""
-            if text and text not in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
-                by = summary_by((upd or {}).get("summary_model"))
-                by_note = f'<p class="by">{html.escape(by)}</p>' if by else ""
-                summary = (f'<details open><summary>AI による要約</summary>{render_markdown(text)}{by_note}'
-                           '<p class="how">AI の要約は誤りを含むことがあります。下の差分、または確認先のページで確かめてください。</p></details>')
-            head = (f'{DIFF_MARK}<nav class="git-nav">'
-                    f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
-                    f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
-                    f'<a href="../../">全体タイムライン</a>'
-                    f'<a href="../../sites.html">サイト一覧</a></nav>'
-                    f'<header class="git-head"><h1>{site} の更新差分</h1>'
-                    f'<dl>{"".join(rows)}</dl>{summary}'
-                    f'<p class="how">ページのテキストの、前回の確認との違いです。左が変更前、右が変更後で、'
-                    f'<strong>緑</strong>が追加、<strong>赤</strong>が削除された部分です。</p></header>')
-            foot = ('<footer class="git-foot"><p>G醫t が記録した差分です。'
-                    f'<a href="../../about.html">G醫tについて</a> ・ <a href="../../">全体タイムライン</a></p>'
-                    '<p>差分の表示: Diff to HTML by <a href="https://github.com/rtfpessoa">rtfpessoa</a>（diff2html）</p></footer>')
-
+            site, when, head, foot = diff_head_foot(slug, hash7, names, by_key, DIFF_MARK)
             page = re.sub(r"<h1>Diff to HTML by .*?</h1>", "", page, count=1, flags=re.S)
             page = re.sub(r"<body[^>]*>", lambda m: m.group(0) + head, page, count=1)
             page = page.replace("</body>", foot + "</body>", 1)
@@ -551,12 +558,14 @@ def select_diff_pages(public_dir: str, migrate: bool):
     """(pages to work on, pages left alone). With migrate every page is worked on."""
     fresh, frozen = set(), []
     for path in diff_page_paths(public_dir):
-        if migrate:
-            fresh.add(path)
-            continue
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             page = f.read()
-        (frozen.append(path) if DIFF_MARK in page else fresh.add(path))
+        if DIFF_MARK_V3 in page:        # a page of the new kind (patch + view): make_diff_pages looks after it
+            continue
+        if migrate or DIFF_MARK not in page:
+            fresh.add(path)
+        else:
+            frozen.append(path)
     return fresh, frozen
 
 
@@ -570,6 +579,66 @@ def count_unshared(paths) -> int:
             if SHARED_DIFF_DIR.replace(os.sep, "/") + "/" not in f.read(40_000):
                 n += 1
     return n
+
+
+# A diff page is a view of a patch. website_stalk.py writes the raw `git show` output of the commit as
+# diff_<hash7>.patch.txt (the record: plain text, about 13 KB on average); this builds diff_<hash7>.html next to it, a small
+# page with the header, the AI summary and the shared diff2html (assets/diff/) that draws the patch in the browser. The
+# page is written when it is missing or still of the old kind (diff2html's own HTML, 100 KB-9 MB, which made the container
+# run out of memory); a page that already has the marker is left as it is (MIGRATE_DIFF_PAGES=1: all are written again).
+DIFF_VIEW_CSS = (
+    "<style>@media screen and (prefers-color-scheme:light){body{background-color:var(--d2h-bg-color)}}"
+    "@media screen and (prefers-color-scheme:dark){body{background-color:rgb(13,17,23)}}"
+    ".git-note{max-width:70rem;margin:.5rem auto;padding:0 1rem;text-align:left;font:14px/1.6 system-ui,sans-serif}"
+    "#diff{text-align:left}</style>"
+)
+HLJS = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/"
+
+
+def render_diff_view(slug: str, hash7: str, names: dict, by_key: dict, base, version: str) -> str:
+    site, when, head, foot = diff_head_foot(slug, hash7, names, by_key, "")
+    patch = f"diff_{hash7}{PATCH_SUFFIX}"
+    v = f"?v={version}" if version else ""
+    page = (
+        "<!doctype html>" + DIFF_MARK_V3 + '<html lang="ja"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>差分 {site} {when or hash7} - G醫t</title>"
+        f'<link rel="stylesheet" href="{HLJS}github.min.css" media="screen and (prefers-color-scheme: light)">'
+        f'<link rel="stylesheet" href="{HLJS}github-dark.min.css" media="screen and (prefers-color-scheme: dark)">'
+        f'<link rel="stylesheet" href="../../assets/diff/diff2html.css{v}">{DIFF_VIEW_CSS}{DIFF_STYLE}</head>'
+        "<body style=\"text-align: center; font-family: 'Source Sans Pro', sans-serif\">"
+        f'{head}<div id="diff" data-patch="{patch}"></div>'
+        '<p id="diff-note" class="git-note" hidden></p>'
+        f'<noscript><p class="git-note">差分の表示には JavaScript が必要です。</p></noscript>'
+        f'<p class="git-note"><a href="{patch}">元の差分（テキスト）</a></p>{foot}'
+        f'<script src="../../assets/diff/diff2html-ui.js{v}"></script><script src="../../assets/diff/diff-view.js{v}"></script>'
+        "</body></html>" + chr(10)
+    )
+    return inject_canonical(page, f"sites/{slug}/diff_{hash7}.html", base)
+
+
+def make_diff_pages(public_dir: str, names: dict, updates: list, base, migrate: bool, version: str) -> int:
+    """Write diff_<hash7>.html for every diff_<hash7>.patch.txt that has no page of the new kind yet. Returns how many."""
+    by_key = {(u.get("site_slug"), str(u.get("commit_hash", ""))[:7]): u for u in updates}
+    sites_root = os.path.join(public_dir, "sites")
+    made = 0
+    for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
+        folder = os.path.join(sites_root, slug)
+        if not os.path.isdir(folder):
+            continue
+        for name in sorted(os.listdir(folder)):
+            if not (name.startswith("diff_") and name.endswith(PATCH_SUFFIX)):
+                continue
+            hash7 = name[5:-len(PATCH_SUFFIX)]
+            page_path = os.path.join(folder, f"diff_{hash7}.html")
+            if os.path.isfile(page_path) and not migrate:
+                with open(page_path, "r", encoding="utf-8", errors="replace") as f:
+                    if DIFF_MARK_V3 in f.read(300):
+                        continue
+            with open(page_path, "w", encoding="utf-8", newline="") as f:
+                f.write(render_diff_view(slug, hash7, names, by_key, base, version))
+            made += 1
+    return made
 
 
 def normalize_legacy_summaries(updates: list) -> int:
@@ -888,11 +957,16 @@ def main():
     print(f"Rewrote {normalize_legacy_summaries(updates)} first-snapshot summar(ies) from the old text.")
 
     os.makedirs(public_dir, exist_ok=True)
+    configured = configured_sites(args.data_dir)
+    version = asset_version(static_dir) if os.path.isdir(static_dir) else ""
+    made = make_diff_pages(public_dir, {s_["slug"]: s_["name"] for s_ in configured}, updates, canonical_base(),
+                           args.migrate_diff_pages, version)
+    print(f"Diff pages written from their patches: {made}.")
     attach_diff_pages(updates, public_dir)
 
     # Summaries derive from untrusted web content, so escape everything (render_markdown escapes first).
     env = Environment(loader=FileSystemLoader(templates_dir), autoescape=select_autoescape(["html"]))
-    sites = build_site_infos(configured_sites(args.data_dir), updates)
+    sites = build_site_infos(configured, updates)
     names = {s["slug"]: s["name"] for s in sites}
 
     site_by_slug = {s_["slug"]: s_ for s_ in sites}
@@ -920,7 +994,7 @@ def main():
         print(f"{unshared} finished diff page(s) still hold their own copy of the style and script (about 300 KB each, in memory "
               f"in the container): run once with MIGRATE_DIFF_PAGES=1 to share them.")
 
-    env.globals["asset_version"] = asset_version(static_dir) if os.path.isdir(static_dir) else ""
+    env.globals["asset_version"] = version
     generated = to_jst(datetime.now(timezone.utc))
     build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
     tag_groups = configured_tag_groups(args.data_dir)

@@ -1,0 +1,4 @@
+diff2html-ui.js and diff2html.css are the browser bundle and style sheet of diff2html (https://github.com/rtfpessoa/diff2html,
+MIT License, Copyright Rodrigo Fernandes), which also contains highlight.js (BSD-3-Clause, Copyright Ivan Sagalaev and contributors).
+They are the files diff2html-cli used to write into every diff page, kept here once and shared by all diff pages.
+diff-view.js is part of G-I-T.

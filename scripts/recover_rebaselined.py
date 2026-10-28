@@ -18,7 +18,7 @@ visible text; a rule only deletes text or shortens an address), makes the AI sum
     needed. --db python|cli|auto (default auto).
   * Rows already in `updates` (same commit) are skipped: the script can be run again after a quota stop. A summary that
     says "no substantive change" is not recorded (the lines that were added were noise).
-  * --pages writes the diff page into <data-dir>/public/sites/<slug>/diff_<hash7>.html (diff2html-cli on the PATH, or npx);
+  * --pages writes the patch of the commit into <data-dir>/public/sites/<slug>/diff_<hash7>.patch.txt (the next dashboard build makes the page);
     commit and push g-i-t-data afterwards (the next dashboard build decorates it). Without --pages the card has no "差分" link.
   * No archive_queue rows: a copy of the page made now would not show the page as it was at that commit.
 Needs the full history of g-i-t-data.
@@ -227,12 +227,7 @@ def main():
                             "url": target or f"https://{t['slug']}", "commit_hash": t["hash"], "summary": summary,
                             "summary_model": model, "created_at": t["when"]})
             if args.pages:
-                html = ws.render_diff_html(t["hash"], args.data_dir, f"sites/{t['slug']}")
-                if html:
-                    folder = os.path.join(args.data_dir, "public", "sites", t["slug"])
-                    os.makedirs(folder, exist_ok=True)
-                    with open(os.path.join(folder, f"diff_{t['hash'][:7]}.html"), "w", encoding="utf-8") as f:
-                        f.write(html)
+                ws.write_diff_patch(args.data_dir, t["slug"], t["hash"])
             done += 1
             print(f"  {t['when']}  {t['slug']:<28} {t['hash'][:7]}  [{model}]  {summary.splitlines()[0][:60] if summary else ''}")
             if len(pending) >= FLUSH_EVERY:

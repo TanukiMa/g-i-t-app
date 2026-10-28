@@ -222,8 +222,8 @@ try {
     if ($DataDir) {
         if (-not (Test-Path -LiteralPath $DataDir)) { throw "DataDir が存在しません: $DataDir" }
         $DataDir = (Resolve-Path -LiteralPath $DataDir).Path
-        $files = @($rows | ForEach-Object { Join-Path $DataDir "public\sites\$($_.Slug)\diff_$($_.Hash).html" } | Where-Object { Test-Path -LiteralPath $_ })
-        Write-Host "消す差分ページ: $($files.Count) 件 ($DataDir\public\sites\<slug>\diff_<hash7>.html)"
+        $files = @($rows | ForEach-Object { foreach ($ext in '.html', '.patch.txt') { Join-Path $DataDir "public\sites\$($_.Slug)\diff_$($_.Hash)$ext" } } | Where-Object { Test-Path -LiteralPath $_ })
+        Write-Host "消す差分ページと差分のテキスト: $($files.Count) 件 ($DataDir\public\sites\<slug>\diff_<hash7>.html / .patch.txt)"
     }
     if ($CountOnly) { Write-Host '(-CountOnly: 変更しません)'; exit 0 }
 

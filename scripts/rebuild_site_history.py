@@ -23,7 +23,7 @@ skipped. The git history is never rewritten.
   1. writes a backup of the rows to rebuild_backup_<slug>_<time>.json (--backup-dir),
   2. deletes the `updates` rows and the `pending` archive_queue rows of those commits (rows already `done` or `failed`
      in archive_queue are kept: the Wayback copies exist, and nothing links to them any more),
-  3. deletes `public/sites/<slug>/diff_<hash7>.html` of those commits in the data checkout.
+  3. deletes `public/sites/<slug>/diff_<hash7>.html` and `.patch.txt` of those commits in the data checkout.
 Then commit and push g-i-t-data (`git add -A public && git commit && git push`) and run `g-i-t-remake-dashboard`: the
 history page, the feeds, `search.json` and `status.json` are rebuilt from the remaining rows.
 Needs SUPABASE_URL / SUPABASE_KEY for the row ids and `--apply` (a dry run without them still gives the verdicts).
@@ -190,9 +190,10 @@ def main():
         for commit, row in noise:
             supabase.table("archive_queue").delete().eq("site_slug", slug).eq("commit_hash", commit).eq("status", "pending").execute()
             supabase.table("updates").delete().eq("id", row["id"]).execute()
-            diff_page = os.path.join(args.data_dir, "public", "sites", slug, f"diff_{commit[:7]}.html")
-            if os.path.exists(diff_page):
-                os.remove(diff_page)
+            for ext in (".html", ".patch.txt"):       # the page and its patch
+                diff_page = os.path.join(args.data_dir, "public", "sites", slug, f"diff_{commit[:7]}{ext}")
+                if os.path.exists(diff_page):
+                    os.remove(diff_page)
             print(f"  removed {commit[:7]} (row {row['id']})")
         print("  Next: commit and push g-i-t-data (git add -A public; git commit; git push), then run g-i-t-remake-dashboard.")
 

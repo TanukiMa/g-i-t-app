@@ -548,21 +548,30 @@ def backfill_summaries(data_dir: str):
             print(f"Error updating summary of update {row['id']}: {e}")
 
 
-def render_diff_html(commit_hash: str, data_dir: str, rel_site: str):
-    """Return side-by-side diff HTML for this site's part of a commit, or None on failure."""
-    patch = git(["show", "--format=", "--patch", commit_hash, "--", rel_site], data_dir)
-    if patch.returncode != 0 or not patch.stdout.strip():
+PATCH_SUFFIX = ".patch.txt"
+
+
+def commit_patch(commit_hash: str, data_dir: str, rel_site: str):
+    """The raw patch of this site's part of a commit (what `git show` prints, as written by git), or None."""
+    res = subprocess.run(["git", "show", "--format=", "--patch", commit_hash, "--", rel_site], cwd=data_dir,
+                         capture_output=True)
+    if res.returncode != 0 or not res.stdout.strip():
         return None
-    # diff2html-cli on the PATH (the container), otherwise fetched by npx (a computer that only has Node)
-    cmd = ["diff2html"] if shutil.which("diff2html") else [shutil.which("npx") or "npx", "--yes", "diff2html-cli"]
-    try:
-        html = run_cmd(cmd + ["-i", "stdin", "-o", "stdout", "-s", "side"], input_text=patch.stdout)
-    except OSError as e:
-        print(f"diff2html not available: {e}")
+    return res.stdout
+
+
+def write_diff_patch(data_dir: str, site_slug: str, commit_hash: str):
+    """Write public/sites/<slug>/diff_<hash7>.patch.txt, the record of a change. The page that shows it
+    (diff_<hash7>.html: header, summary, diff2html in the browser) is made by build_dashboard.py. Returns the path or None."""
+    patch = commit_patch(commit_hash, data_dir, f"sites/{site_slug}")
+    if patch is None:
         return None
-    if html.returncode != 0 or not html.stdout.strip():
-        return None
-    return html.stdout
+    folder = os.path.join(data_dir, "public", "sites", site_slug)
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"diff_{commit_hash[:7]}{PATCH_SUFFIX}")
+    with open(path, "wb") as f:
+        f.write(patch)
+    return path
 
 
 def visible_len(text: str) -> int:
@@ -729,17 +738,9 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report
         return None
     commit_hash = git(["rev-parse", "HEAD"], data_dir).stdout.strip()
 
-    # 4. Diff HTML goes straight into public/ (published by the dashboard commit)
-    diff_html = None if is_initial else render_diff_html(commit_hash, data_dir, rel_site)
-    if is_initial:
-        pass
-    elif diff_html:
-        diff_dir = os.path.join(data_dir, "public", "sites", site_slug)
-        os.makedirs(diff_dir, exist_ok=True)
-        with open(os.path.join(diff_dir, f"diff_{commit_hash[:7]}.html"), "w", encoding="utf-8") as f:
-            f.write(diff_html)
-    else:
-        print(f"Failed to generate diff HTML for {site_slug}.")
+    # 4. The patch of the commit goes into public/ (published by the dashboard commit); the page that shows it is made there
+    if not is_initial and not write_diff_patch(data_dir, site_slug, commit_hash):
+        print(f"Failed to write the patch of {site_slug} ({commit_hash[:7]}).")
 
     page_url = target_url or f"https://{domain}"
     return {
