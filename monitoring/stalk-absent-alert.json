@@ -1,0 +1,30 @@
+{
+  "displayName": "G醫t g-i-t-stalk: 17 時間成功がない",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "g-i-t-stalk の成功した実行が 17 時間ない",
+      "conditionAbsent": {
+        "filter": "metric.type=\"run.googleapis.com/job/completed_execution_count\" resource.type=\"cloud_run_job\" resource.label.\"job_name\"=\"g-i-t-stalk\" metric.label.\"result\"=\"succeeded\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "duration": "61200s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "g-i-t-stalk の成功した実行が 17 時間ありません（予定は 7:30、12:30、16:30 JST で、最長の間隔は 15 時間です）。Scheduler の失敗や、実行の失敗が続いていないか確認してください。"
+  }
+}

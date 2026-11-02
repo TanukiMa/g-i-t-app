@@ -16,6 +16,8 @@
 #                           Cloud Scheduler entry afterwards (gcloud run jobs delete g-i-t-raw ...). Not part of the default jobs.
 #   g-i-t-recover           recover the updates swallowed by Re-baseline commits (pushes diff pages to g-i-t-data;
 #                           gcloud run jobs execute g-i-t-recover --args="recover,--dry-run" ...)
+#   g-i-t-report            e-mail of the last 24 hours (scripts/daily_report.py), started by Cloud Scheduler about 8:00 JST;
+#                           needs the secret GMAIL_APP_PASSWORD, the roles run.viewer + logging.viewer for the service account
 # SUPABASE_URL and WEBSITE_STALKER_FROM are read from the .env file (never printed). The secrets GH_PAT, GEMINI_API_KEY and
 # SUPABASE_KEY must exist in Secret Manager of the project. NOTE: --set-env-vars REPLACES the whole list of a job; put every
 # extra variable you want to keep (GA_MEASUREMENT_ID ...) into -ExtraEnv.
@@ -35,6 +37,9 @@ param(
     [string]$RawSites = '',             # job raw: comma separated slugs (empty = every site)
     [int]$RawDays = 30,                 # job raw: length of the experiment
     [int]$RawRunsPerDay = 1,            # job raw: runs per day (the limit is RawDays x RawRunsPerDay runs)
+    [string]$ReportUser = 'mguuji@goudge.org',          # job report: Gmail account of the app password (SMTP login)
+    [string]$ReportFrom = 'mguuji+giiit@goudge.org',    # job report: sender shown
+    [string]$ReportTo = 'mguuji+giiit@goudge.org',      # job report: recipient
     [string[]]$ExtraEnv = @(),
     [string[]]$Jobs = @('stalk', 'remake-dashboard'),
     [string]$EnvFile = '.env',
@@ -44,7 +49,7 @@ $ErrorActionPreference = 'Stop'
 # "-File" hands a comma list over as ONE string ("a,b"): split it here
 $Jobs = @($Jobs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $DeployTargets = @($DeployTargets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-foreach ($j in $Jobs) { if ($j -notin 'stalk', 'remake-dashboard', 'resummarize', 'recover', 'raw') { throw "unknown job '$j' (stalk, remake-dashboard, resummarize, recover, raw)" } }
+foreach ($j in $Jobs) { if ($j -notin 'stalk', 'remake-dashboard', 'resummarize', 'recover', 'raw', 'report') { throw "unknown job '$j' (stalk, remake-dashboard, resummarize, recover, raw, report)" } }
 
 function Read-EnvValue([string]$name) {
     if (-not (Test-Path $EnvFile)) { throw "$EnvFile not found (run from the repository root, or pass -EnvFile)" }
@@ -96,6 +101,9 @@ $definitions = @{
     'raw' = @{ Name = 'g-i-t-raw'; Args = 'raw'; Timeout = '1500s'; From = $true
                  Secrets = 'GH_PAT=GH_PAT:latest'
                  More = @('RAW_EXPERIMENT=1', "RAW_DAYS=$RawDays", "RAW_RUNS_PER_DAY=$RawRunsPerDay", 'RAW_BUDGET_MIN=20') }
+    'report' = @{ Name = 'g-i-t-report'; Args = 'report'; Timeout = '300s'; From = $false
+                 Secrets = 'GMAIL_APP_PASSWORD=GMAIL_APP_PASSWORD:latest'
+                 More = @("GMAIL_USER=$ReportUser", "REPORT_FROM=$ReportFrom", "REPORT_TO=$ReportTo") }
     'recover' = @{ Name = 'g-i-t-recover'; Args = 'recover'; Timeout = '2400s'; From = $false
                  Secrets = 'GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_KEY=SUPABASE_KEY:latest' }
 }

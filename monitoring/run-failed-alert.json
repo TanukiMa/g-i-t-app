@@ -1,0 +1,22 @@
+{
+  "displayName": "G醫t Cloud Run: ジョブが異常終了",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "コンテナが 0 以外で終了、またはメモリ不足",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND (textPayload=~\"Container called exit[(][1-9]\" OR textPayload:\"Out-of-memory event\")"
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {
+      "period": "3600s"
+    },
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Cloud Run のジョブ（g-i-t-stalk など）が、0 以外の終了コードで終わったか、メモリ不足で止まりました。ログの最後の数十行で原因を確認してください。デプロイされたのは、ダッシュボードの作成が最後まで終わった場合だけです。"
+  }
+}

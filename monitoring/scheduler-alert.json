@@ -1,0 +1,22 @@
+{
+  "displayName": "G醫t Scheduler: 起動の試行が失敗",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "Cloud Scheduler の AttemptFinished が ERROR",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_scheduler_job\" AND jsonPayload.@type=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\" AND severity>=ERROR"
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {
+      "period": "3600s"
+    },
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Cloud Scheduler がジョブを起動しようとして失敗しました（例: 503 UNAVAILABLE）。再試行（最大 3 回）で復旧する場合もあります。Cloud Run > ジョブ > 実行 に、この時刻の実行があるか確認してください。無ければ `gcloud run jobs execute <ジョブ名> --region asia-northeast1` で手動実行します。"
+  }
+}

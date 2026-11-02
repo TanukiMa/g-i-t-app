@@ -8,6 +8,7 @@
 #   help | --help      list the modes (MODE --help: the details of one mode)
 #   recover [args]     recover the updates that a Re-baseline commit swallowed (scripts/recover_rebaselined.py; args are passed on,
 #                      e.g. --dry-run, --limit 5, --exclude jsmez): rows into Supabase, diff pages pushed to g-i-t-data
+#   report             e-mail the last 24 hours of the Cloud Run jobs (scripts/daily_report.py; --dry-run prints it)
 #   raw                editor experiment: fetch every site WITHOUT editors into g-i-t-data-raw (scripts/raw_experiment.py)
 set -uo pipefail
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # set by bootstrap.sh (code fetched at start)
@@ -29,6 +30,7 @@ Modes:
   recover [opts]      Recover the updates that a Re-baseline commit swallowed: summaries (gemini-3.5-flash-lite by default),
                       rows in Supabase with the time of the commit, diff pages pushed to g-i-t-data. Options are those of
                       scripts/recover_rebaselined.py: recover --help.  Then run remake-dashboard to publish.
+  report [--dry-run]  E-mail the last 24 hours of the Cloud Run jobs (runs, updates, Gemini errors, Scheduler failures).
   raw                 Editor experiment: fetch every site WITHOUT editors into g-i-t-data-raw.
                       Does nothing unless RAW_EXPERIMENT=1.
   help, --help, -h    This text.
@@ -64,6 +66,12 @@ Needs: SUPABASE_URL SUPABASE_KEY IA_ACCESS_KEY IA_SECRET_KEY (optional: IA_ACCES
 Options (environment): ARCHIVE_BATCH_SIZE ARCHIVE_INTERVAL_SEC ARCHIVE_RUNTIME_MIN ARCHIVE_ANON_FALLBACK ...
 HELP
     ;;
+    report) cat <<'HELP'
+report: read the last REPORT_HOURS (24) hours of executions and logs (Cloud Run Admin and Cloud Logging APIs) and send a mail.
+Needs: GMAIL_USER GMAIL_APP_PASSWORD (REPORT_FROM, REPORT_TO optional); the service account needs run.viewer and logging.viewer.
+Options (environment): REPORT_JOBS REPORT_HOURS GCP_PROJECT GCP_REGION SITE_BASE_URL;  --dry-run prints the mail.
+HELP
+    ;;
     raw) cat <<'HELP'
 raw: editor experiment. Fetch every site of config.yaml WITHOUT editors and commit the changes to g-i-t-data-raw.
 Does nothing unless RAW_EXPERIMENT=1 (keep it 0 normally: every site is fetched a second time).
@@ -92,6 +100,9 @@ elif [ "${2:-}" = "--help" ] || [ "${2:-}" = "-h" ] || [ "${2:-}" = "help" ]; th
 fi
 if [ "$cmd" = "archive" ]; then
   exec python "$APP_DIR/scripts/archive_worker.py"
+elif [ "$cmd" = "report" ]; then
+  shift
+  exec python "$APP_DIR/scripts/daily_report.py" "$@"
 elif [ "$cmd" = "raw" ]; then
   # Raw arm of the editor experiment (scripts/raw_experiment.py): the same sites without any editor, into g-i-t-data-raw.
   for v in GH_PAT WEBSITE_STALKER_FROM; do
