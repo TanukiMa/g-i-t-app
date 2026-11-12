@@ -17,7 +17,7 @@
 #   g-i-t-recover           recover the updates swallowed by Re-baseline commits (pushes diff pages to g-i-t-data;
 #                           gcloud run jobs execute g-i-t-recover --args="recover,--dry-run" ...)
 #   g-i-t-report            e-mail of the last 24 hours (scripts/daily_report.py), started by Cloud Scheduler about 8:00 JST;
-#                           needs the secret GMAIL_APP_PASSWORD, the roles run.viewer + logging.viewer for the service account
+#                           needs the secret GMAIL_APP_PASSWORD, the roles run.viewer + logging.viewer + artifactregistry.reader for the service account
 # SUPABASE_URL and WEBSITE_STALKER_FROM are read from the .env file (never printed). The secrets GH_PAT, GEMINI_API_KEY and
 # SUPABASE_KEY must exist in Secret Manager of the project. NOTE: --set-env-vars REPLACES the whole list of a job; put every
 # extra variable you want to keep (GA_MEASUREMENT_ID ...) into -ExtraEnv.

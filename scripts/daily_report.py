@@ -3,11 +3,14 @@
 Reads the last REPORT_HOURS (default 24) hours: the executions of the jobs (Cloud Run Admin API), their logs and the
 errors of Cloud Scheduler (Cloud Logging API), and the age of feeds/status.json. Nothing is written anywhere except the mail.
 
+Also the size of the Artifact Registry repositories (free tier: 0.5 GiB; above it the report says "要確認"), because image
+builds pile up there (2026-11-12: 3.9 GB). Needs the role artifactregistry.reader for it.
+
 Needs the roles run.viewer and logging.viewer for the job's service account, and
   GMAIL_USER (the SMTP login = the Google account the app password belongs to), GMAIL_APP_PASSWORD (Gmail app password),
   REPORT_FROM (shown sender, default GMAIL_USER; an address of the same account, e.g. a +alias), REPORT_TO (default REPORT_FROM).
   Options (environment): GCP_PROJECT (gi-i-it), GCP_REGION (asia-northeast1), REPORT_JOBS (comma separated),
-  REPORT_HOURS, SITE_BASE_URL.   --dry-run prints the mail instead of sending it.
+  REPORT_HOURS, SITE_BASE_URL, ARTIFACT_REPOS (comma separated, default "git"), ARTIFACT_FREE_GIB (default 0.5).   --dry-run prints the mail instead of sending it.
 """
 import argparse
 import os
@@ -130,6 +133,41 @@ def scheduler_errors(session, project, since):
     return rows
 
 
+GIB = 1024 ** 3
+
+
+def repository_sizes(session, project, region, repos):
+    """[(repository, size in bytes or None, error text)] from the Artifact Registry API."""
+    rows = []
+    for repo in repos:
+        url = f"https://artifactregistry.googleapis.com/v1/projects/{project}/locations/{region}/repositories/{repo}"
+        try:
+            res = session.get(url, timeout=30)
+            if res.status_code != 200:
+                rows.append((repo, None, f"HTTP {res.status_code}"))
+                continue
+            rows.append((repo, int(res.json().get("sizeBytes") or 0), ""))
+        except (requests.RequestException, ValueError) as e:
+            rows.append((repo, None, type(e).__name__))
+    return rows
+
+
+def artifact_lines(rows, free_gib):
+    """(lines for the mail, problems): a repository above the free tier, or one that could not be read, is a problem."""
+    lines, problems = [], []
+    free = free_gib * GIB
+    for repo, size, error in rows:
+        if size is None:
+            lines.append(f"  {repo}: 取得できませんでした（{error}）")
+            problems.append(f"Artifact Registry の {repo} のサイズを取得できませんでした（{error}。artifactregistry.reader が必要です）。")
+            continue
+        lines.append(f"  {repo}: {size / GIB:.2f} GiB / 無料枠 {free_gib:g} GiB（{size / free * 100:.0f}%）")
+        if size > free:
+            problems.append(f"Artifact Registry の {repo} が無料枠を超えています（{size / GIB:.2f} GiB、無料枠 {free_gib:g} GiB）。"
+                            "古いイメージの削除ポリシーを確認してください。")
+    return lines, problems
+
+
 def status_generated(base):
     if not base:
         return None
@@ -175,6 +213,12 @@ def build_report(hours):
     per = analyze_execution_logs(read_logs(session, project, log_filter))
     sched = scheduler_errors(session, project, since)
     generated = status_generated(os.environ.get("SITE_BASE_URL", ""))
+    repos = [r.strip() for r in os.environ.get("ARTIFACT_REPOS", "git").split(",") if r.strip()]
+    try:
+        free_gib = float(os.environ.get("ARTIFACT_FREE_GIB", "0.5"))
+    except ValueError:
+        free_gib = 0.5
+    artifact_rows, artifact_problems = artifact_lines(repository_sizes(session, project, region, repos), free_gib)
 
     lines, problems = [], []
     stalk = [e for e in executions if e["job"] == "g-i-t-stalk"]
@@ -218,6 +262,7 @@ def build_report(hours):
     else:
         gen_line = "status.json の更新: 取得できませんでした"
 
+    problems += artifact_problems
     total_updates = sum((per[e["name"]]["pages"] or 0) for e in stalk if e["name"] in per)
     if problems:
         subject = f"[G醫t] 要確認（{len(problems)} 件）"
@@ -232,6 +277,8 @@ def build_report(hours):
         body += ["■ Gemini のエラー（再試行・別モデルへの切り替えを含む）"] + gemini_lines + [""]
     if sched_lines:
         body += ["■ Cloud Scheduler の失敗"] + sched_lines + [""]
+    if artifact_rows:
+        body += ["■ Artifact Registry の容量"] + artifact_rows + [""]
     body += [gen_line]
     base = os.environ.get("SITE_BASE_URL", "")
     if base:
