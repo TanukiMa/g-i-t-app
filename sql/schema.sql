@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS archive_queue (
 CREATE INDEX IF NOT EXISTS idx_archive_queue_pending ON archive_queue(status, next_try_at);
 CREATE INDEX IF NOT EXISTS idx_archive_queue_commit ON archive_queue(site_slug, commit_hash);
 
+-- Row Level Security: the tables are in the public schema, so without it anyone with the project URL and the (public)
+-- anon key can read, change and delete every row through the REST API. No policy is created on purpose: the pipeline
+-- uses the secret key (service_role), which bypasses RLS, and anon/authenticated get no access at all.
+ALTER TABLE updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE archive_queue ENABLE ROW LEVEL SECURITY;
+
 -- Migration for an existing deployment:
 -- ALTER TABLE updates DROP COLUMN IF EXISTS archive_url;
 -- ALTER TABLE updates ADD COLUMN IF NOT EXISTS summary_model TEXT;   (sql/add-summary-model.sql)
