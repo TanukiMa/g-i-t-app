@@ -614,6 +614,25 @@ def describe_response(url: str, headers: list) -> str:
         return f"diagnostic request failed: {e}"
 
 
+def server_gives_no_page(url: str, headers: list) -> str:
+    """Asks the server once more, with the site's headers. '' when it answers HTTP 200 with a body (or when the
+    question cannot be answered); otherwise what it says instead: 'HTTP 202', 'an empty body'. A CDN or its bot
+    protection sometimes answers 202 with 0 bytes (meti.go.jp, from Cloud Run, for hours): that is a failed fetch, not a
+    page that was emptied, and website-stalker stores it as if it were the page."""
+    try:
+        sent = {k.strip(): v.strip() for k, _, v in (h.partition(":") for h in headers if ":" in h)}
+        if os.environ.get("WEBSITE_STALKER_FROM"):
+            sent.setdefault("From", os.environ["WEBSITE_STALKER_FROM"])
+        r = requests.get(url, headers=sent, timeout=20)
+    except Exception:
+        return ""
+    if r.status_code != 200:
+        return f"HTTP {r.status_code}"
+    if not r.content:
+        return "an empty body"
+    return ""
+
+
 def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report_reorder: bool = False,
                  display_url: str = "", records_spec=None):
     """Stalk one site and commit its changes as one commit. Returns a pending log record or None.
@@ -679,6 +698,14 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report
             time.sleep(BLANK_RETRY_WAIT_SEC)
             fetch()
             blank = blanked_files(data_dir, rel_site)
+        if blank:
+            # The server itself says it is not giving the page (HTTP 202, no body ...): a failed fetch, never an update,
+            # however many runs in a row it lasts. Nothing is committed; the stored page stays as it is.
+            reason = server_gives_no_page(target_url, site_headers)
+            if reason:
+                print(f"{site_slug}: the server answers {reason} instead of the page: not recorded, the stored page stays as it is.")
+                git(["checkout", "--", rel_site], data_dir)
+                return None
         rel_marker = f"{rel_site}/{BLANK_MARKER}"
         suspected = os.path.exists(os.path.join(data_dir, rel_marker))
         if blank and not suspected:
