@@ -31,6 +31,11 @@ RE_SUMMARIZED = re.compile(r"^Summarized \S+ \(")
 RE_GEMINI = re.compile(r"Error during Gemini API call \(([^,]+), attempt \d+\): (\d{3})")
 RE_PAGES = re.compile(r"Diff pages written from their patches: (\d+)")
 RE_EXIT = re.compile(r"Container called exit\((\d+)\)")
+# website-stalker: "ERROR: <url> <reason>" (a site it could not fetch, e.g. "the server answered HTTP 202 Accepted instead of 200 OK");
+# the pipeline's own guard: "<slug>: the server answers HTTP 202 instead of the page: not recorded"
+RE_FETCH_ERROR = re.compile(r"ERROR:\s+(https?://\S+)\s+(.+)")
+RE_GUARD = re.compile(r"^(\S+): the server answers (.+?) instead of the page: not recorded")
+FETCH_FAIL_PROBLEM = int(os.environ.get("REPORT_FETCH_FAIL_MIN", "3"))
 
 
 def parse_time(text):
@@ -96,13 +101,24 @@ def read_logs(session, project, log_filter, max_pages=30):
 def analyze_execution_logs(entries):
     """execution name -> counters from the lines of its log."""
     per = defaultdict(lambda: {"summaries": 0, "gemini": defaultdict(lambda: defaultdict(int)), "pages": None,
-                               "exit": None, "oom": False, "skipped_deploy": False, "problems": []})
+                               "exit": None, "oom": False, "skipped_deploy": False, "problems": [], "fetch_failed": {}})
     for e in entries:
         name = (e.get("labels") or {}).get(EXEC_LABEL)
         text = e.get("textPayload") or ""
         if not name or not text:
             continue
         info = per[name]
+        for line in text.splitlines():
+            m = RE_FETCH_ERROR.search(line)
+            if m:
+                key, reason = m.group(1), m.group(2).strip()
+            else:
+                m = RE_GUARD.match(line.strip())
+                if not m:
+                    continue
+                key, reason = m.group(1), m.group(2)
+            # one failure per site and run (the same fetch can be logged by both the fetcher and the pipeline guard)
+            info["fetch_failed"].setdefault(key, (parse_time(e.get("timestamp")), reason))
         if RE_SUMMARIZED.match(text):
             info["summaries"] += 1
         m = RE_GEMINI.search(text)
@@ -131,6 +147,27 @@ def scheduler_errors(session, project, since):
         job = (e.get("resource", {}).get("labels") or {}).get("job_id", "?")
         rows.append((parse_time(e.get("timestamp")), job, payload.get("status") or payload.get("debugInfo") or "ERROR"))
     return rows
+
+
+def fetch_failure_lines(per, stalk_names):
+    """([lines for the mail], [problems]) for the sites a run could not fetch (HTTP 202, empty body, timeouts ...).
+
+    The stored page stays as it is in such a run and the job still ends with status 0, so only the log shows it.
+    A site that failed in at least FETCH_FAIL_PROBLEM runs of the period is a problem (a one-off failure is only listed)."""
+    sites = defaultdict(list)  # key -> [(time, reason)]
+    for name in stalk_names:
+        for key, (when, reason) in (per[name]["fetch_failed"] if name in per else {}).items():
+            sites[key].append((when, reason))
+    lines, problems = [], []
+    for key, hits in sorted(sites.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        hits.sort(key=lambda h: h[0] or datetime.min.replace(tzinfo=timezone.utc))
+        reason = hits[-1][1]
+        reason = reason if len(reason) <= 90 else reason[:87] + "..."
+        times = "、".join(jst(w) for w, _ in hits[:6]) + ("、…" if len(hits) > 6 else "")
+        lines.append(f"  {key}  {len(hits)} 回（{times}）: {reason}")
+        if len(hits) >= FETCH_FAIL_PROBLEM:
+            problems.append(f"{key} が {len(hits)} 回続けて取得できませんでした（{reason}）。保存済みのページは変わっていません。")
+    return lines, problems
 
 
 GIB = 1024 ** 3
@@ -262,6 +299,8 @@ def build_report(hours):
     else:
         gen_line = "status.json の更新: 取得できませんでした"
 
+    fetch_lines, fetch_problems = fetch_failure_lines(per, [e["name"] for e in stalk])
+    problems += fetch_problems
     problems += artifact_problems
     total_updates = sum((per[e["name"]]["pages"] or 0) for e in stalk if e["name"] in per)
     if problems:
@@ -273,6 +312,8 @@ def build_report(hours):
     if problems:
         body += ["■ 要確認"] + [f"  ・{p}" for p in problems] + [""]
     body += ["■ 実行"] + [f"  {l}" if not l.startswith("    ") else l for l in lines] + [""]
+    if fetch_lines:
+        body += ["■ 取得できなかったサイト（保存済みのページは変えていません）"] + fetch_lines + [""]
     if gemini_lines:
         body += ["■ Gemini のエラー（再試行・別モデルへの切り替えを含む）"] + gemini_lines + [""]
     if sched_lines:
