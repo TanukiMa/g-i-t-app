@@ -5,8 +5,8 @@ on:
     # Three runs a day, each about 50 minutes after a stalk run of the planned schedule (JST 7:30, 12:30, 16:30;
     # Cloud Scheduler runs it once the pipeline has moved to Cloud Run, stalk.yml is then retired), so that the pages
     # found are saved soon after: JST 8:20, 13:20, 17:20 = UTC 23:20 (the day before), 04:20, 08:20. Off-peak minutes
-    # (GitHub is busiest at :00/:15/:30/:45). Each run works for up to ARCHIVE_RUNTIME_MIN minutes: about 12 URLs per
-    # 15 minutes, so ~48 per run with the S3 keys.
+    # (GitHub is busiest at :00/:15/:30/:45). Each run works for up to ARCHIVE_RUNTIME_MIN minutes: with
+    # ARCHIVE_WORKERS=3 about 5 URLs a minute (one at a time it was about 80 an hour).
     - cron: '20 23,4,8,10,12,14 * * *'
   workflow_dispatch:
 
@@ -43,7 +43,10 @@ jobs:
           IA_ACCESS_KEY_3: ${{ secrets.IA_ACCESS_KEY_3 }}
           IA_SECRET_KEY_3: ${{ secrets.IA_SECRET_KEY_3 }}
           ARCHIVE_BATCH_SIZE: '20'
-          ARCHIVE_INTERVAL_SEC: '15'
+          # A capture takes 20-40 s: 3 at a time, a new one at most every 10 s (6 a minute; the Internet Archive allows 7 per
+          # account). One at a time used only a fifth of that (about 80 URLs an hour).
+          ARCHIVE_WORKERS: '3'
+          ARCHIVE_INTERVAL_SEC: '10'
           ARCHIVE_RUNTIME_MIN: '60'
           PYTHONUNBUFFERED: '1'
         run: python scripts/archive_worker.py

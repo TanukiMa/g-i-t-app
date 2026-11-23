@@ -240,6 +240,11 @@ class DiffAnalysis:
         return "\n".join(f"=== {path}\n" + "\n".join(f"{sign}{text}" for sign, text in compact_records(lines))
                          for path, lines in self.net_files)
 
+    def added_markup(self) -> str:
+        """The lines that are really added (net: a line that only moved is not here), as one string of HTML; the
+        links of these lines are the NEW links of the page."""
+        return "\n".join(text for _path, ls in self.net_files for sign, text in ls if sign == "+")
+
     def added_text(self) -> list:
         """Visible text that is added and not also removed. Markup, attributes and addresses do not count."""
         lines = [item for _path, ls in self.net_files for item in ls]
@@ -443,6 +448,48 @@ def extract_attachment_links(diff_text: str, base_url: str) -> list:
     return links[:MAX_ATTACHMENTS_PER_UPDATE]
 
 
+# New links of an update (any host, not only documents): `archive_links` in config.yaml (default on, `false` per site).
+# At most this many per update, same-domain pages first; attachments (above) come on top of them and are not counted.
+MAX_LINKS_PER_UPDATE = int(os.environ.get("ARCHIVE_LINKS_MAX") or 10)
+# Never worth a capture: images, style sheets, scripts, fonts, audio/video, archives.
+LINK_SKIP_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico", ".css", ".js", ".woff", ".woff2", ".ttf",
+                  ".mp3", ".mp4", ".mov", ".avi", ".zip", ".gz", ".exe")
+
+
+def extract_new_links(added_html: str, base_url: str, known=()) -> list:
+    """Links (any host) in the lines that this diff REALLY adds (DiffAnalysis.added_markup). Documents come first, then
+    pages of the same site, then the rest; in page order inside each group. `known` (the attachments) are left out."""
+    base_host = _host(urlparse(base_url).netloc)
+    base_clean = base_url.split("#")[0].rstrip("/")
+    seen = set(known)
+    docs, same, other = [], [], []
+    for a in BeautifulSoup(added_html, "html.parser").find_all("a", href=True):
+        full = urljoin(base_url, a["href"].strip()).split("#")[0]
+        parsed = urlparse(full)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc or len(full) > 2000:
+            continue
+        path = parsed.path.lower()
+        if path.endswith(LINK_SKIP_EXTS) or full in seen or full.rstrip("/") == base_clean:
+            continue
+        seen.add(full)
+        if path.endswith(ATTACHMENT_EXTS):
+            docs.append(full)
+        elif _host(parsed.netloc) == base_host:
+            same.append(full)
+        else:
+            other.append(full)
+    return (docs + same + other)[:MAX_LINKS_PER_UPDATE]
+
+
+def attachments_for(raw_diff: str, analysis, page_url: str, archive_links: bool = True) -> list:
+    """What goes into archive_queue besides the page itself: same-domain documents of the added lines (as before) and, unless
+    the site has `archive_links: false`, the other new links (extract_new_links). Never for a site's first snapshot."""
+    docs = extract_attachment_links(raw_diff, page_url)
+    if not archive_links:
+        return docs
+    return docs + extract_new_links(analysis.added_markup(), page_url, known=docs)
+
+
 def get_supabase():
     supa_url = os.environ.get("SUPABASE_URL")
     supa_key = os.environ.get("SUPABASE_KEY")
@@ -634,7 +681,7 @@ def server_gives_no_page(url: str, headers: list) -> str:
 
 
 def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report_reorder: bool = False,
-                 display_url: str = "", records_spec=None):
+                 display_url: str = "", records_spec=None, archive_links: bool = True):
     """Stalk one site and commit its changes as one commit. Returns a pending log record or None.
 
     `display_url` (config.yaml) is the address shown to readers instead of the fetched one: the record's "url" (stored in
@@ -778,7 +825,7 @@ def process_site(data_dir: str, site_slug: str, rebaseline: bool = False, report
         "commit_hash": commit_hash,
         "summary": summary,                # None = to be summarized from raw_diff by main()
         "raw_diff": None if is_initial else raw_diff,
-        "attachments": [] if is_initial else extract_attachment_links(raw_diff, page_url),
+        "attachments": [] if is_initial else attachments_for(raw_diff, analysis, page_url, archive_links),
     }
 
 
@@ -826,9 +873,10 @@ def main():
         records_specs = {s["slug"]: s["json_records"] for s in configured if s.get("json_records")}
         paused = {s["slug"] for s in configured if s.get("paused")}
         no_archive = {s["slug"] for s in configured if s.get("archive") is False}
+        no_links = {s["slug"] for s in configured if s.get("archive_links") is False}
     except Exception as e:
         print(f"display_url / json_records lookup skipped: {e}")
-        display_urls, records_specs, paused, no_archive = {}, {}, set(), set()
+        display_urls, records_specs, paused, no_archive, no_links = {}, {}, set(), set(), set()
     if paused:
         print(f"Paused (`paused: true` in config.yaml, not fetched): {', '.join(sorted(paused))}")
     sites_dir = os.path.join(args.data_dir, "sites")
@@ -843,7 +891,8 @@ def main():
                 record = process_site(args.data_dir, entry, rebaseline=entry in rebaseline,
                                       report_reorder=entry in report_reorder,
                                       display_url=display_urls.get(entry, ""),
-                                      records_spec=records_specs.get(entry))
+                                      records_spec=records_specs.get(entry),
+                                      archive_links=entry not in no_links)
                 if record:
                     pending.append(record)
             except Exception as e:

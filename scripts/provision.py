@@ -176,8 +176,9 @@ def configured_sites(data_dir: str) -> list:
         records = records if isinstance(records, dict) and isinstance(records.get("id"), str) and records["id"] else None
         paused = isinstance(target, dict) and target.get("paused") is True
         archive = not (isinstance(target, dict) and target.get("archive") is False)
+        archive_links = not (isinstance(target, dict) and target.get("archive_links") is False)   # default: on
         sites.append({"slug": slug, "name": str(name), "url": shown, "fetch_url": url, "tags": tags,
-                      "json_records": records, "paused": paused, "archive": archive})
+                      "json_records": records, "paused": paused, "archive": archive, "archive_links": archive_links})
     return sites
 
 
@@ -191,7 +192,7 @@ def run_cmd(cmd, cwd=None):
 
 # G-I-T metadata in config.yaml; website-stalker rejects unknown keys, so these are never written out.
 RESERVED_KEYS = ("name", "slug", "url", "tags", "ignore", "remove", "default_ignore", "report_reorder", "display_url",
-                 "json_records", "paused", "archive")
+                 "json_records", "paused", "archive", "archive_links")
 
 # Rules applied to EVERY site unless it sets `default_ignore: false`. WordPress (and many CMSs) append a
 # changing number to static files, e.g. file.pdf?1700000001 or logo.png?ver=6.4.2, which would otherwise be

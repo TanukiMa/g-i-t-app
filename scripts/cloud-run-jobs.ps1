@@ -18,6 +18,11 @@
 #                           gcloud run jobs execute g-i-t-recover --args="recover,--dry-run" ...)
 #   g-i-t-report            e-mail of the last 24 hours (scripts/daily_report.py), started by Cloud Scheduler about 8:00 JST;
 #                           needs the secret GMAIL_APP_PASSWORD, the roles run.viewer + logging.viewer + artifactregistry.reader for the service account
+#   g-i-t-archive          drain archive_queue into the Internet Archive (scripts/archive_worker.py): 3 captures at the same
+#                           time, at most 6 a minute, up to 60 minutes of work (task timeout 75 minutes), 512 Mi of memory.
+#                           The SAME image as the others (no extra storage in Artifact Registry). Needs the secrets IA_ACCESS_KEY and
+#                           IA_SECRET_KEY in Secret Manager (+ secretAccessor for the service account) and, to run by itself,
+#                           a Cloud Scheduler job (docs/cloud-run.md, section 9). Do not run it together with archive.yml.
 # SUPABASE_URL and WEBSITE_STALKER_FROM are read from the .env file (never printed). The secrets GH_PAT, GEMINI_API_KEY and
 # SUPABASE_KEY must exist in Secret Manager of the project. NOTE: --set-env-vars REPLACES the whole list of a job; put every
 # extra variable you want to keep (GA_MEASUREMENT_ID ...) into -ExtraEnv.
@@ -49,7 +54,7 @@ $ErrorActionPreference = 'Stop'
 # "-File" hands a comma list over as ONE string ("a,b"): split it here
 $Jobs = @($Jobs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $DeployTargets = @($DeployTargets | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-foreach ($j in $Jobs) { if ($j -notin 'stalk', 'remake-dashboard', 'resummarize', 'recover', 'raw', 'report') { throw "unknown job '$j' (stalk, remake-dashboard, resummarize, recover, raw, report)" } }
+foreach ($j in $Jobs) { if ($j -notin 'stalk', 'remake-dashboard', 'resummarize', 'recover', 'raw', 'report', 'archive') { throw "unknown job '$j' (stalk, remake-dashboard, resummarize, recover, raw, report, archive)" } }
 
 function Read-EnvValue([string]$name) {
     if (-not (Test-Path $EnvFile)) { throw "$EnvFile not found (run from the repository root, or pass -EnvFile)" }
@@ -104,6 +109,9 @@ $definitions = @{
     'report' = @{ Name = 'g-i-t-report'; Args = 'report'; Timeout = '300s'; From = $false
                  Secrets = 'GMAIL_APP_PASSWORD=GMAIL_APP_PASSWORD:latest'
                  More = @("GMAIL_USER=$ReportUser", "REPORT_FROM=$ReportFrom", "REPORT_TO=$ReportTo") }
+    'archive' = @{ Name = 'g-i-t-archive'; Args = 'archive'; Timeout = '4500s'; From = $false; Memory = '512Mi'
+                 Secrets = 'SUPABASE_KEY=SUPABASE_KEY:latest,IA_ACCESS_KEY=IA_ACCESS_KEY:latest,IA_SECRET_KEY=IA_SECRET_KEY:latest'
+                 More = @('ARCHIVE_WORKERS=3', 'ARCHIVE_INTERVAL_SEC=10', 'ARCHIVE_RUNTIME_MIN=60', 'ARCHIVE_BATCH_SIZE=20') }
     'recover' = @{ Name = 'g-i-t-recover'; Args = 'recover'; Timeout = '2400s'; From = $false
                  Secrets = 'GH_PAT=GH_PAT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_KEY=SUPABASE_KEY:latest' }
 }
@@ -114,7 +122,7 @@ foreach ($key in $Jobs) {
     $exists = ($LASTEXITCODE -eq 0)
     $verb = if ($exists) { 'update' } else { 'create' }
     $cli = @('run', 'jobs', $verb, $d.Name, '--image', $image, '--region', $Region, '--project', $Project,
-             '--service-account', $sa, '--cpu', '1', '--memory', '1Gi', '--max-retries', '0', '--task-timeout', $d.Timeout,
+             '--service-account', $sa, '--cpu', '1', '--memory', $(if ($d.Memory) { $d.Memory } else { '1Gi' }), '--max-retries', '0', '--task-timeout', $d.Timeout,
              '--set-env-vars', (New-EnvArg $d.From (@($d.More) + $(if ($RawSites -and $key -eq 'raw') { @("RAW_SITES=$RawSites") } else { @() }))), '--set-secrets', $d.Secrets)
     if ($d.Args) { $cli += @('--args', $d.Args) }
     $shown = ($cli | ForEach-Object { if ($_ -like '^#^*') { '"<env: ' + ($_.Split('#').Count - 1) + ' variables, values not shown>"' } else { $_ } }) -join ' '

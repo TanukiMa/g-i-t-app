@@ -182,7 +182,7 @@ gcloud scheduler jobs create http g-i-t-stalk --location $REGION \
 
 `feeds/status.json` の実行時刻は、ジョブの環境変数 `STALK_RUNS`（例: `07:30,12:30,16:30`）か、`scripts/common.py` の既定値です。Cloud Scheduler の時刻と合わせてください。
 
-スケジュールは、1 日 3 回（日本時間 7:30・12:30・16:30）です。Cloud Scheduler の無料枠は「ジョブが 3 つまで」で、実行回数の上限ではありません。**アーカイブ（`archive.yml`）は、Cloud Run に移さず、GitHub Actions のままにします**（約 50 分後の 3 回、JST 8:20・13:20・17:20）。1 件ごとに 15〜60 秒の待ちがあり、Cloud Run では、待ちも課金されるためです。GitHub Actions の `stalk.yml`（`cron` は UTC で書く）とは、別に、Cloud Scheduler 側で時刻帯を指定できます。Cloud Scheduler は、時刻どおりに起動します（GitHub の `schedule` のような遅れは、ありません）。
+スケジュールは、1 日 3 回（日本時間 7:30・12:30・16:30）です。Cloud Scheduler の無料枠は「ジョブが 3 つまで」で、実行回数の上限ではありません。**アーカイブ（`archive.yml`）は、いまは GitHub Actions のままです**（約 50 分後の 3 回、JST 8:20・13:20・17:20）。3 件を同時に処理するようになったので、Cloud Run に移すこともできます（第 9 節）。GitHub Actions の `stalk.yml`（`cron` は UTC で書く）とは、別に、Cloud Scheduler 側で時刻帯を指定できます。Cloud Scheduler は、時刻どおりに起動します（GitHub の `schedule` のような遅れは、ありません）。
 
 ```bash
 gh workflow disable stalk.yml --repo TanukiMa/g-i-t-app
@@ -239,13 +239,50 @@ gcloud alpha monitoring policies create --policy-from-file=monitoring/hosting-al
 
 ## 9. アーカイブワーカー
 
-同じイメージで `archive` も動かせます（`g-i-t-archive` というジョブを同様に作り、引数に `archive` を渡す）。ただし、1 件あたり約 75 秒を待つ処理なので、Cloud Run の課金には向きません。手元の Linux で `scripts/drain-archive-local.sh` を動かすほうを勧めます。
+既存のイメージ（`g-i-t-app:firebase`）で、`archive` モードのジョブを動かせます。新しいイメージは作らないので、Artifact Registry の容量は増えません。以前は、1 件ずつ 40〜45 秒かけて処理し、その待ちにも課金されるため、Cloud Run には向かないと考えていました。いまは 3 件を同時に処理し（`ARCHIVE_WORKERS=3`、開始は 10 秒に 1 回まで）、キューが空になれば、すぐに終わります。1 日の追加は約 100 件なので、1 回の実行は、おおむね 5〜20 分です（概算で、月の無料枠に収まる見込みですが、未確認です）。
 
-```bash
-gcloud run jobs create g-i-t-archive --image $IMAGE --region $REGION --args=archive \
-  --service-account $SA@$PROJECT.iam.gserviceaccount.com --max-retries 0 --task-timeout 1200s \
-  --set-secrets SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_KEY=SUPABASE_KEY:latest,IA_ACCESS_KEY=IA_ACCESS_KEY:latest,IA_SECRET_KEY=IA_SECRET_KEY:latest
+1. **IA の S3 キーを Secret Manager に登録する**（値は `.env` の `IA_ACCESS_KEY` / `IA_SECRET_KEY`。ここには書きません）。
+
+```powershell
+# 値は標準入力で渡す（コマンドラインに残さない）。.env の行から値を取り出して渡す例:
+(Get-Content .env | Where-Object { $_ -match '^IA_ACCESS_KEY=' }).Split('=', 2)[1].Trim() | gcloud secrets create IA_ACCESS_KEY --data-file=- --project gi-i-it
+(Get-Content .env | Where-Object { $_ -match '^IA_SECRET_KEY=' }).Split('=', 2)[1].Trim() | gcloud secrets create IA_SECRET_KEY --data-file=- --project gi-i-it
+foreach ($n in 'IA_ACCESS_KEY', 'IA_SECRET_KEY') {
+  gcloud secrets add-iam-policy-binding $n --member "serviceAccount:g-i-t-runner@gi-i-it.iam.gserviceaccount.com" --role roles/secretmanager.secretAccessor --project gi-i-it
+}
 ```
+
+2. **ジョブを作る**（`-DryRun` で内容を確かめてから）。
+
+```powershell
+pwsh scripts/cloud-run-jobs.ps1 -Jobs archive -DryRun
+pwsh scripts/cloud-run-jobs.ps1 -Jobs archive
+```
+
+3. **1 回だけ手で動かして確認する**。
+
+```powershell
+gcloud run jobs execute g-i-t-archive --region asia-northeast1 --wait
+```
+
+ログに `3 at a time, one started every 10s` と、`Archived per level: S3 key 1=N` が出れば、動いています。
+
+4. **Cloud Scheduler で定期実行する**。stalk の約 50 分後（日本時間 8:20、13:20、17:20）です。ジョブごとに、起動の権限（`roles/run.invoker`）が要ります（`g-i-t-report` と同じです）。
+
+```powershell
+gcloud run jobs add-iam-policy-binding g-i-t-archive --region asia-northeast1 --project gi-i-it `
+  --member "serviceAccount:g-i-t-runner@gi-i-it.iam.gserviceaccount.com" --role roles/run.invoker
+gcloud scheduler jobs create http g-i-t-archive-trigger --location asia-northeast1 --project gi-i-it `
+  --schedule "20 8,13,17 * * *" --time-zone Asia/Tokyo `
+  --uri "https://run.googleapis.com/v2/projects/gi-i-it/locations/asia-northeast1/jobs/g-i-t-archive:run" `
+  --http-method POST --oauth-service-account-email g-i-t-runner@gi-i-it.iam.gserviceaccount.com `
+  --oauth-token-scope https://www.googleapis.com/auth/cloud-platform `
+  --max-retry-attempts 3 --min-backoff 30s --max-backoff 300s --max-doublings 3
+```
+
+5. **GitHub Actions の `archive.yml` を止める**。同じキューを 2 か所で処理すると、同じ URL を 2 回登録することがあります（行を排他する仕組みは、ありません）。`archive.yml` の `schedule` を消して、`workflow_dispatch` だけにします。
+
+Cloud Run に移すかどうかは、IA 側の制限が変わるかではなく、実行時刻の確実さ（Cloud Scheduler は GitHub の `schedule` のような遅れが少ない）と、GitHub Actions の遅延を避けたいかどうかで決めてください。IA の制限（アカウントあたり 1 分 7 件）と、保存の速度は、どちらで動かしても、同じです。実行元のアドレスが変わるので、IA の応答が変わる可能性はありますが、これは未確認です。
 
 ## 手元での確認
 
