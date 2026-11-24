@@ -33,7 +33,7 @@ RUN rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup defau
 RUN cargo install --locked --git https://github.com/TanukiMa/website-stalker.git ${WS_REV:+--rev $WS_REV} --root /out
 
 # ---- base: everything the pipeline needs except a deploy CLI (measured: about 480 MB) ----
-FROM node:22-trixie-slim AS base
+FROM node:25-trixie-slim AS base
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 LANG=C.UTF-8 PIP_NO_CACHE_DIR=1
 # website-stalker (reqwest 0.13) uses rustls, so no libssl is needed at run time; ca-certificates is.
 RUN apt-get update \
