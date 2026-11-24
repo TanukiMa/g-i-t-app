@@ -83,7 +83,7 @@ def main():
     # The run budget of budget.py: give it this run's own (its last 8 minutes are a reserve there).
     os.environ["STALK_BUDGET_MIN"] = str(args.max_minutes + 8)
     import summarize as ws_ai
-    from common import LEGACY_SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_INITIAL
+    from common import SUMMARY_FAILED, SUMMARY_INITIAL
     from db import get_supabase, write_summary
     from diffcore import net_diff
     from shell import git
@@ -92,7 +92,7 @@ def main():
     if not supabase:
         sys.exit("SUPABASE_URL / SUPABASE_KEY are not set.")
     try:
-        rows = fetch_rows(supabase, args, {SUMMARY_INITIAL, *LEGACY_SUMMARY_INITIAL})
+        rows = fetch_rows(supabase, args, {SUMMARY_INITIAL})
     except Exception as e:
         sys.exit(f"Could not read updates ({e}). Has sql/add-summary-model.sql been run?")
     models = csv_list(args.model) or None

@@ -1,15 +1,13 @@
 """The diff pages: public/sites/<slug>/diff_<hash7>.html, a small view of the patch next to it (diff_<hash7>.patch.txt,
-written by the pipeline), drawn by diff2html in the browser. The functions for pages of the old kind (diff2html's own
-HTML, decorated, with shared assets) only touch pages without a marker."""
-import hashlib
+written by the pipeline), drawn by diff2html in the browser."""
 import html
 import os
-import re
 
 from canonical import inject_canonical
 from common import (DATA_REPO_URL, DIFF_MARK_V3, PATCH_SUFFIX, SITE_PAGE, SUMMARY_FAILED, SUMMARY_INITIAL,
                     SUMMARY_UNAVAILABLE)
 from dashboard_text import render_markdown, summary_by, to_jst
+
 
 def attach_diff_pages(updates, public_dir: str):
     """Set item['diff_file'] for updates whose diff_<hash7>.html was written by website_stalk.py."""
@@ -20,11 +18,6 @@ def attach_diff_pages(updates, public_dir: str):
         name = f"diff_{commit[:7]}.html"
         if os.path.isfile(os.path.join(public_dir, "sites", slug, name)):
             item["diff_file"] = name
-
-
-DIFF_MARK = "<!--git-diff-v2-->"
-
-
 
 
 DIFF_STYLE = (
@@ -51,10 +44,7 @@ DIFF_STYLE = (
 )
 
 
-_DIFF_OLD_NAV = re.compile(r"<!--git-nav-->.*?</nav>", re.S)
-
-
-def diff_head_foot(slug: str, hash7: str, names: dict, by_key: dict, mark: str):
+def diff_head_foot(slug: str, hash7: str, names: dict, by_key: dict):
     """(site name, update time, header html, footer html) of a diff page: link bar, what/when/where, the AI summary."""
     site = html.escape(names.get(slug, slug))
     upd = by_key.get((slug, hash7))
@@ -77,7 +67,7 @@ def diff_head_foot(slug: str, hash7: str, names: dict, by_key: dict, mark: str):
         by_note = f'<p class="by">{html.escape(by)}</p>' if by else ""
         summary = (f'<details open><summary>AI による要約</summary>{render_markdown(text)}{by_note}'
                    '<p class="how">AI の要約は誤りを含むことがあります。下の差分、または確認先のページで確かめてください。</p></details>')
-    head = (f'{mark}<nav class="git-nav">'
+    head = (f'<nav class="git-nav">'
             f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
             f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
             f'<a href="../../">全体タイムライン</a>'
@@ -92,161 +82,12 @@ def diff_head_foot(slug: str, hash7: str, names: dict, by_key: dict, mark: str):
     return site, when, head, foot
 
 
-def decorate_diff_pages(public_dir: str, names: dict, updates: list, only=None) -> int:
-    """Make every diff page understandable on its own.
-
-    diff2html writes a standalone page headed "Diff to HTML by rtfpessoa". Here that heading is replaced by
-    what the visitor needs: which site and update this is, when, the monitored page, the commit and the AI
-    summary, plus how to read the two columns. A link bar leads back, and the credit moves to the footer.
-    Done for all existing diff pages (also those of earlier runs); the marker keeps it idempotent.
-    only: the paths to work on (None = all). Returns the number of pages changed.
-    """
-    by_key = {(u.get("site_slug"), str(u.get("commit_hash", ""))[:7]): u for u in updates}
-    sites_root = os.path.join(public_dir, "sites")
-    changed = 0
-    for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
-        folder = os.path.join(sites_root, slug)
-        for name in sorted(os.listdir(folder)):
-            if not (name.startswith("diff_") and name.endswith(".html")):
-                continue
-            path = os.path.join(folder, name)
-            if only is not None and path not in only:
-                continue
-            with open(path, "r", encoding="utf-8") as f:
-                page = f.read()
-            if DIFF_MARK in page:
-                # decorated by an earlier build: only the link to the timeline changed (directory URL, no index.html)
-                fixed = page.replace('href="../../index.html"', 'href="../../"')
-                if fixed != page:
-                    with open(path, "w", encoding="utf-8", newline="") as f:
-                        f.write(fixed)
-                    changed += 1
-                continue
-            if not re.search(r"<body[^>]*>", page):
-                continue
-            page = _DIFF_OLD_NAV.sub("", page)      # bar of the first version of this feature
-            hash7 = name[5:-5]
-            site, when, head, foot = diff_head_foot(slug, hash7, names, by_key, DIFF_MARK)
-            page = re.sub(r"<h1>Diff to HTML by .*?</h1>", "", page, count=1, flags=re.S)
-            page = re.sub(r"<body[^>]*>", lambda m: m.group(0) + head, page, count=1)
-            page = page.replace("</body>", foot + "</body>", 1)
-            page = page.replace("</head>", DIFF_STYLE + "</head>", 1)
-            page = re.sub(r"<title>.*?</title>", lambda m: f"<title>差分 {site} {when or hash7} - G醫t</title>", page, count=1, flags=re.S)
-            with open(path, "w", encoding="utf-8", newline="") as f:
-                f.write(page)
-            changed += 1
-    return changed
-
-
-# diff2html writes its whole style sheet (~17 KB) and script bundle (~300 KB) into every page. That is >90% of each page,
-# and the container's file system lives in memory (1 GiB), so hundreds of pages used up the memory of the run. Both are
-# the same in every page: they are written once to assets/diff/ (named by content) and the pages link to them.
-SHARED_DIFF_DIR = os.path.join("assets", "diff")
-
-
-# One pattern for both: the leftmost block wins and its content is not scanned again (the script bundle contains the text "<style").
-_INLINE_BLOCK = re.compile(r"<(style|script)>(.*?)</" + chr(92) + r"1>", re.S)
-
-
-SHARED_STYLE_MIN, SHARED_SCRIPT_MIN = 5000, 50000   # our own DIFF_STYLE (~2 KB) and the small scripts stay inline
-
-
-def externalize_diff_assets(public_dir: str, only=None) -> int:
-    """Move the big inline <style> / <script> of every diff page to files shared by all pages. Returns pages changed."""
-    sites_root = os.path.join(public_dir, "sites")
-    if not os.path.isdir(sites_root):
-        return 0
-    shared_dir = os.path.join(public_dir, SHARED_DIFF_DIR)
-    written = set()
-
-    def shared(text: str, ext: str) -> str:
-        name = f"diff2html-{hashlib.sha1(text.encode('utf-8')).hexdigest()[:10]}.{ext}"
-        if name not in written:
-            os.makedirs(shared_dir, exist_ok=True)
-            path = os.path.join(shared_dir, name)
-            if not os.path.isfile(path):
-                with open(path, "w", encoding="utf-8", newline="") as f:
-                    f.write(text)
-            written.add(name)
-        return f"../../{SHARED_DIFF_DIR.replace(os.sep, '/')}/{name}"
-
-    def swap(m):
-        tag, body = m.group(1), m.group(2)
-        if tag == "style" and len(body) >= SHARED_STYLE_MIN:
-            return f'<link rel="stylesheet" href="{shared(body, "css")}">'
-        if tag == "script" and len(body) >= SHARED_SCRIPT_MIN:
-            return f'<script src="{shared(body, "js")}"></script>'
-        return m.group(0)
-
-    changed = 0
-    for slug in os.listdir(sites_root):
-        folder = os.path.join(sites_root, slug)
-        if not os.path.isdir(folder):
-            continue
-        for name in os.listdir(folder):
-            if not (name.startswith("diff_") and name.endswith(".html")):
-                continue
-            path = os.path.join(folder, name)
-            if only is not None and path not in only:
-                continue
-            with open(path, "r", encoding="utf-8", newline="") as f:
-                page = f.read()
-            new = _INLINE_BLOCK.sub(swap, page)
-            if new != page:
-                with open(path, "w", encoding="utf-8", newline="") as f:
-                    f.write(new)
-                changed += 1
-    return changed
-
-
-# A diff page is a record: once it has been made it is not touched again. The marker DIFF_MARK (written by
-# decorate_diff_pages) tells a finished page; the build decorates, shares the style and script of, and adds the
-# canonical link to the pages that do not have it yet (those of this run), and leaves every other page as it is, so
-# a change of the design, the domain or this script never rewrites the past. MIGRATE_DIFF_PAGES=1 (or
-# --migrate-diff-pages) works on all pages once, for such a deliberate change.
-
-def diff_page_paths(public_dir: str):
-    sites_root = os.path.join(public_dir, "sites")
-    for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
-        folder = os.path.join(sites_root, slug)
-        if os.path.isdir(folder):
-            for name in sorted(os.listdir(folder)):
-                if name.startswith("diff_") and name.endswith(".html"):
-                    yield os.path.join(folder, name)
-
-
-def select_diff_pages(public_dir: str, migrate: bool):
-    """(pages to work on, pages left alone). With migrate every page is worked on."""
-    fresh, frozen = set(), []
-    for path in diff_page_paths(public_dir):
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            page = f.read()
-        if DIFF_MARK_V3 in page:        # a page of the new kind (patch + view): make_diff_pages looks after it
-            continue
-        if migrate or DIFF_MARK not in page:
-            fresh.add(path)
-        else:
-            frozen.append(path)
-    return fresh, frozen
-
-
-def count_unshared(paths) -> int:
-    """How many of the finished pages still carry their own copy of the style and script (made before they were shared)."""
-    n = 0
-    for path in paths:
-        if os.path.getsize(path) < 250_000:
-            continue
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            if SHARED_DIFF_DIR.replace(os.sep, "/") + "/" not in f.read(40_000):
-                n += 1
-    return n
-
-
 # A diff page is a view of a patch. website_stalk.py writes the raw `git show` output of the commit as
 # diff_<hash7>.patch.txt (the record: plain text, about 13 KB on average); this builds diff_<hash7>.html next to it, a small
 # page with the header, the AI summary and the shared diff2html (assets/diff/) that draws the patch in the browser. The
-# page is written when it is missing or still of the old kind (diff2html's own HTML, 100 KB-9 MB, which made the container
-# run out of memory); a page that already has the marker is left as it is (MIGRATE_DIFF_PAGES=1: all are written again).
+# page is written when it is missing or not of this kind (diff2html's own HTML of the past, 100 KB-9 MB, made the container
+# run out of memory); a page that already has the marker is a record and is left as it is, so a change of the design,
+# the domain or this script never rewrites the past (MIGRATE_DIFF_PAGES=1: all are written again, once, on purpose).
 DIFF_VIEW_CSS = (
     "<style>@media screen and (prefers-color-scheme:light){body{background-color:var(--d2h-bg-color)}}"
     "@media screen and (prefers-color-scheme:dark){body{background-color:rgb(13,17,23)}}"
@@ -259,7 +100,7 @@ HLJS = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/"
 
 
 def render_diff_view(slug: str, hash7: str, names: dict, by_key: dict, base, version: str) -> str:
-    site, when, head, foot = diff_head_foot(slug, hash7, names, by_key, "")
+    site, when, head, foot = diff_head_foot(slug, hash7, names, by_key)
     patch = f"diff_{hash7}{PATCH_SUFFIX}"
     v = f"?v={version}" if version else ""
     page = (
@@ -302,30 +143,3 @@ def make_diff_pages(public_dir: str, names: dict, updates: list, base, migrate: 
                 f.write(render_diff_view(slug, hash7, names, by_key, base, version))
             made += 1
     return made
-
-
-def canonicalize_diff_pages(public_dir: str, base, only=None) -> int:
-    """The diff pages are written by diff2html and decorated earlier (decorate_diff_pages): give them the canonical link too.
-    Only a page that changes is written again. Returns how many."""
-    changed = 0
-    sites_root = os.path.join(public_dir, "sites")
-    if not os.path.isdir(sites_root):
-        return 0
-    for slug in os.listdir(sites_root):
-        folder = os.path.join(sites_root, slug)
-        if not os.path.isdir(folder):
-            continue
-        for name in os.listdir(folder):
-            if not (name.startswith("diff_") and name.endswith(".html")):
-                continue
-            path = os.path.join(folder, name)
-            if only is not None and path not in only:
-                continue
-            with open(path, "r", encoding="utf-8", newline="") as f:
-                page = f.read()
-            new = inject_canonical(page, f"sites/{slug}/{name}", base)
-            if new != page:
-                with open(path, "w", encoding="utf-8", newline="") as f:
-                    f.write(new)
-                changed += 1
-    return changed

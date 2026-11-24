@@ -14,18 +14,22 @@ from datetime import datetime, timezone
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from canonical import canonical_base, inject_canonical
-from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, LEGACY_SUMMARY_INITIAL, SITE_BASE_URL, SITE_PAGE,
-                    SUMMARY_INITIAL, TIMELINE_LIMIT, env_flag)
+from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, SUMMARY_INITIAL,
+                    TIMELINE_LIMIT, env_flag)
 from dashboard_text import excerpt, group_by_day, group_periods, hostname, iso_attr, render_markdown, summary_by, to_jst
 from db import fetch_all, get_supabase
-from diff_pages import (attach_diff_pages, canonicalize_diff_pages, count_unshared, decorate_diff_pages,
-                        externalize_diff_assets, make_diff_pages, select_diff_pages)
+from diff_pages import attach_diff_pages, make_diff_pages
 from feeds import build_atom, build_search_index, build_sitemap, build_status, previous_generated, tag_id
 from provision import config_problems, configured_sites, configured_tag_groups
 from shell import git
 
 # The timeline used to come in three styles; the other two addresses now forward to it (bookmarks keep working).
 RETIRED_TIMELINES = ("dashboard.html", "minimal.html")
+# Files of public/ that nothing uses any more: the style sheets of those two styles, and the style and script that
+# diff pages of the old kind shared (assets/diff/diff2html-<sha1>.css|js; no such page is left). Removed at every build;
+# copytree() of static/ only adds and overwrites, it never deletes.
+RETIRED_ASSETS = ("assets/dashboard.css", "assets/minimal.css")
+RETIRED_ASSET_RE = re.compile(r"^diff2html-[0-9a-f]{10}\.(css|js)$")
 
 
 # ---------------------------------------------------------------- data
@@ -77,16 +81,6 @@ def build_tag_infos(sites: list, groups: list = ()) -> list:
     ordered += [(t, "") for t in sorted(counts) if t not in seen]
     return [{"name": t, "id": tag_id(t), "count": counts[t], "feed": f"feeds/{tag_id(t)}.xml", "group": g}
             for t, g in ordered]
-
-
-def normalize_legacy_summaries(updates: list) -> int:
-    """Show the first-snapshot rows written with an older text as the current SUMMARY_INITIAL (Supabase is not touched)."""
-    n = 0
-    for u in updates:
-        if u.get("summary") in LEGACY_SUMMARY_INITIAL:
-            u["summary"] = SUMMARY_INITIAL
-            n += 1
-    return n
 
 
 def fetch_updates_from_supabase():
@@ -143,24 +137,13 @@ def analytics_settings() -> dict:
     return {"ga_id": ga_id, "cf_token": cf_token, "enabled": bool(ga_id or cf_token)}
 
 
-def pwa_passphrase_hash() -> str:
-    """PWA_PASSPHRASE_HASH ("pbkdf2$sha256$<iterations>$<salt>$<hash>", from scripts/pwa-passphrase.py); "" when missing or malformed."""
-    value = os.environ.get("PWA_PASSPHRASE_HASH", "").strip()
-    return value if re.fullmatch(r"pbkdf2\$sha256\$\d{4,7}\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+", value) else ""
-
-
-def pwa_mode() -> str:
-    """PWA_ENABLED: "on" (unset, 1), "off" (0 / false / no / off) or "optin" (the app is off for visitors; whoever opens
-    <site>/?pwa and types the passphrase switches it on in their own browser). optin needs PWA_PASSPHRASE_HASH; without it the app is off."""
+def pwa_enabled() -> bool:
+    """PWA_ENABLED: on when unset or 1; off for 0 / false / no / off. The former opt-in mode ("optin") is off."""
     value = os.environ.get("PWA_ENABLED", "1").strip().lower()
-    if value in ("0", "false", "no", "off"):
-        return "off"
     if value == "optin":
-        if pwa_passphrase_hash():
-            return "optin"
-        print("WARNING: PWA_ENABLED=optin needs a valid PWA_PASSPHRASE_HASH (scripts/pwa-passphrase.py): the app stays off.")
-        return "off"
-    return "on"
+        print("WARNING: PWA_ENABLED=optin is no longer supported: the app is off (set 1 or 0).")
+        return False
+    return value not in ("0", "false", "no", "off")
 
 
 def done_file():
@@ -212,15 +195,14 @@ class PageWriter:
             print(f"Removed {path}" + (f" ({why})" if why else ""))
 
 
-def publish_root_files(writer: PageWriter, src_dir: str, build_id: str, version: str = "", mode: str = "on"):
+def publish_root_files(writer: PageWriter, src_dir: str, build_id: str, version: str = "", enabled: bool = True):
     """Copy manifest.webmanifest / sw.js to the site root (a service worker only controls its own directory).
 
-    mode "on":    manifest.webmanifest and sw.js (the full worker).
-    mode "off":   no manifest (removed when an earlier build left one); sw.js is the retiring worker (static/sw-retire.js):
-                  browsers that installed the app earlier fetch it and clean themselves up.
-    mode "optin": the manifest is published (the pages do not link it; static/pwa.js adds the link in a browser that was
-                  switched on), sw.js is the retiring worker as in "off", and the full worker is sw-app.js, which only
-                  such a browser registers.
+    on:   manifest.webmanifest and sw.js (the full worker).
+    off:  no manifest (removed when an earlier build left one); sw.js is the retiring worker (static/sw-retire.js):
+          browsers that installed the app earlier fetch it and clean themselves up.
+    Either way sw-app.js is the retiring worker: it was the worker of the former opt-in mode, and a browser that
+    registered it looks for it again and then cleans itself up.
     """
     if not os.path.isdir(src_dir):
         return
@@ -229,21 +211,25 @@ def publish_root_files(writer: PageWriter, src_dir: str, build_id: str, version:
         with open(path, "r", encoding="utf-8") as f:
             return f.read().replace("__BUILD_ID__", build_id).replace("__ASSET_VERSION__", version)
 
+    retire = render(os.path.join(os.path.dirname(src_dir), "sw-retire.js"))
     for name in os.listdir(src_dir):
         path = os.path.join(src_dir, name)
         if not os.path.isfile(path):
             continue
-        if mode == "off" and name == "manifest.webmanifest":
+        if not enabled and name == "manifest.webmanifest":
             writer.remove(name, "PWA_ENABLED=0")
             continue
-        if mode != "on" and name == "sw.js":
-            writer.page("sw.js", render(os.path.join(os.path.dirname(src_dir), "sw-retire.js")))
-            if mode == "optin":
-                writer.page("sw-app.js", render(path))
-            continue
-        writer.page(name, render(path))
-    if mode != "optin":
-        writer.remove("sw-app.js", "PWA_ENABLED is not optin")
+        writer.page(name, retire if not enabled and name == "sw.js" else render(path))
+    writer.page("sw-app.js", retire)
+
+
+def remove_retired_assets(writer: PageWriter):
+    for rel in RETIRED_ASSETS:
+        writer.remove(rel, "no longer used")
+    shared = writer.path("assets", "diff")
+    for name in sorted(os.listdir(shared)) if os.path.isdir(shared) else []:
+        if RETIRED_ASSET_RE.match(name):
+            writer.remove(f"assets/diff/{name}", "only diff pages of the old kind used it")
 
 
 # ---------------------------------------------------------------- the pages
@@ -260,33 +246,17 @@ def make_env(templates_dir: str, sites: list, version: str) -> Environment:
         site_name=lambda slug: names.get(slug, slug),
         site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
     )
-    mode = pwa_mode()
-    env.globals.update(pwa_enabled=(mode == "on"), pwa_mode=mode, pwa_hash=pwa_passphrase_hash() if mode == "optin" else "",
-                       initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
+    env.globals.update(pwa_enabled=pwa_enabled(), initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
                        analytics=analytics_settings(), asset_version=version)
     return env
 
 
 def prepare_diff_pages(public_dir: str, configured: list, updates: list, base, migrate: bool, version: str):
-    """Write the diff pages of new patches, then look after the pages of the old kind (see diff_pages.py)."""
+    """Write the diff pages of new patches (see diff_pages.py) and tell every update whether it has one."""
     made = make_diff_pages(public_dir, {s_["slug"]: s_["name"] for s_ in configured}, updates, base, migrate, version)
     print(f"Diff pages written from their patches: {made}.")
     attach_diff_pages(updates, public_dir)
     return made
-
-
-def update_old_diff_pages(public_dir: str, names: dict, updates: list, base, migrate: bool):
-    fresh, frozen = select_diff_pages(public_dir, migrate)
-    print(f"Diff pages: {len(fresh)} to make{' (all of them: --migrate-diff-pages)' if migrate else ''}, "
-          f"{len(frozen)} finished ones left as they are.")
-    print(f"Decorated {decorate_diff_pages(public_dir, names, updates, only=fresh)} diff page(s).")
-    print(f"Moved the shared style and script out of {externalize_diff_assets(public_dir, only=fresh)} diff page(s).")
-    print(f"Canonical address: {base or '(none: SITE_BASE_URL is GitHub Pages or local)'}; "
-          f"{canonicalize_diff_pages(public_dir, base, only=fresh)} diff page(s) changed.")
-    unshared = count_unshared(frozen)
-    if unshared:
-        print(f"{unshared} finished diff page(s) still hold their own copy of the style and script (about 300 KB each, in memory "
-              f"in the container): run once with MIGRATE_DIFF_PAGES=1 to share them.")
 
 
 FORWARD_PAGE = ('<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="robots" content="noindex">'
@@ -375,8 +345,8 @@ def parse_args():
     parser.add_argument("--no-push", action="store_true",
                         help="only write public/: no commit, no push (also DASHBOARD_NO_PUSH=1); for a rebuild after a change of templates or scripts")
     parser.add_argument("--migrate-diff-pages", action="store_true",
-                        help="work on ALL diff pages (decorate, share style and script, canonical link); by default only the pages "
-                             "of this run are made and every finished page is left as it is (also MIGRATE_DIFF_PAGES=1)")
+                        help="write ALL diff pages again from their patches (after a deliberate change of their design); by default "
+                             "only missing pages are made and every finished page is left as it is (also MIGRATE_DIFF_PAGES=1)")
     args = parser.parse_args()
     args.migrate_diff_pages = args.migrate_diff_pages or env_flag("MIGRATE_DIFF_PAGES")
     args.no_push = args.no_push or env_flag("DASHBOARD_NO_PUSH")
@@ -400,7 +370,6 @@ def main():
         if not args.no_push:
             commit_and_push_parent(args.data_dir)  # still publish new diff pages
         sys.exit(1)
-    print(f"Rewrote {normalize_legacy_summaries(updates)} first-snapshot summar(ies) from the old text.")
 
     os.makedirs(public_dir, exist_ok=True)
     base = canonical_base()
@@ -411,7 +380,6 @@ def main():
 
     sites = build_site_infos(configured, updates)
     env = make_env(templates_dir, sites, version)
-    update_old_diff_pages(public_dir, {s["slug"]: s["name"] for s in sites}, updates, base, args.migrate_diff_pages)
 
     tag_groups = configured_tag_groups(args.data_dir)
     tags = build_tag_infos(sites, tag_groups)
@@ -421,8 +389,9 @@ def main():
     if os.path.isdir(static_dir):
         shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("root"))
+        remove_retired_assets(writer)
         build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
-        publish_root_files(writer, os.path.join(static_dir, "root"), build_id, version, env.globals["pwa_mode"])
+        publish_root_files(writer, os.path.join(static_dir, "root"), build_id, version, env.globals["pwa_enabled"])
     writer.page("offline.html", env.get_template("offline.html").render())
 
     render_timeline(writer, env, updates, common)
