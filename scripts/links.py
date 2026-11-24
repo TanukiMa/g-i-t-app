@@ -11,8 +11,20 @@ MAX_ATTACHMENTS_PER_UPDATE = 50
 # At most this many per update, same-domain pages first; attachments (above) come on top of them and are not counted.
 MAX_LINKS_PER_UPDATE = int(os.environ.get("ARCHIVE_LINKS_MAX") or 10)
 # Never worth a capture: images, style sheets, scripts, fonts, audio/video, archives.
-LINK_SKIP_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp", ".ico", ".css", ".js", ".woff", ".woff2", ".ttf",
-                  ".mp3", ".mp4", ".mov", ".avi", ".zip", ".gz", ".exe")
+LINK_SKIP_EXTS = (".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".gif", ".svg", ".webp", ".avif", ".bmp", ".tif", ".tiff", ".ico",
+                  ".css", ".js", ".mjs", ".map", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+                  ".mp3", ".m4a", ".wav", ".ogg", ".mp4", ".m4v", ".mov", ".avi", ".wmv", ".flv", ".webm", ".mpg", ".mpeg",
+                  ".zip", ".gz", ".tgz", ".bz2", ".7z", ".rar", ".tar", ".lzh", ".exe", ".msi", ".dmg", ".apk", ".iso")
+
+
+def _resolve(base_url: str, href: str):
+    """Absolute address without #fragment and its parsed form; None for an href that cannot be read (urljoin / urlparse
+    raise ValueError for e.g. `http://[bad`). One bad link must never cost the update its record."""
+    try:
+        full = urljoin(base_url, href.strip()).split("#")[0]
+        return full, urlparse(full)
+    except ValueError:
+        return None
 
 
 def _host(netloc: str) -> str:
@@ -28,8 +40,10 @@ def extract_attachment_links(diff_text: str, base_url: str) -> list:
     base_host = _host(urlparse(base_url).netloc)
     links = []
     for a in BeautifulSoup(added, "html.parser").find_all("a", href=True):
-        full = urljoin(base_url, a["href"].strip()).split("#")[0]
-        parsed = urlparse(full)
+        resolved = _resolve(base_url, a["href"])
+        if not resolved:
+            continue
+        full, parsed = resolved
         if parsed.scheme not in ("http", "https") or _host(parsed.netloc) != base_host:
             continue
         if not parsed.path.lower().endswith(ATTACHMENT_EXTS):
@@ -47,8 +61,10 @@ def extract_new_links(added_html: str, base_url: str, known=()) -> list:
     seen = set(known)
     docs, same, other = [], [], []
     for a in BeautifulSoup(added_html, "html.parser").find_all("a", href=True):
-        full = urljoin(base_url, a["href"].strip()).split("#")[0]
-        parsed = urlparse(full)
+        resolved = _resolve(base_url, a["href"])
+        if not resolved:
+            continue
+        full, parsed = resolved
         if parsed.scheme not in ("http", "https") or not parsed.netloc or len(full) > 2000:
             continue
         path = parsed.path.lower()

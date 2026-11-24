@@ -234,9 +234,10 @@ class Drainer:
                 self.blocked_until[level] = self.monotonic() + self.auth_retry_sec
                 rnd.retry_q.appendleft(row)
             elif result == "unauthorized":
-                self.counts["unauthorized"] += 1
-                self.blocked_until[level] = float("inf")
-                print(f"The {self.name(level)} is left out for the rest of this run.")
+                if self.blocked_until[level] != float("inf"):    # captures in flight together all report the same key once
+                    self.counts["unauthorized"] += 1
+                    self.blocked_until[level] = float("inf")
+                    print(f"The {self.name(level)} is left out for the rest of this run.")
                 rnd.retry_q.appendleft(row)
             elif result == "rate_limited":
                 self.counts["rate_limited"] += 1
