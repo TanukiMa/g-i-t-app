@@ -24,7 +24,8 @@ from feeds import build_atom, build_search_index, build_sitemap, build_status, p
 from provision import config_problems, configured_sites, configured_tag_groups
 from shell import git
 
-ROOT_PAGES = ("index.html", "dashboard.html", "minimal.html")
+# The timeline used to come in three styles; the other two addresses now forward to it (bookmarks keep working).
+RETIRED_TIMELINES = ("dashboard.html", "minimal.html")
 
 
 # ---------------------------------------------------------------- data
@@ -189,10 +190,10 @@ class PageWriter:
     def __init__(self, public_dir: str, base):
         self.public_dir, self.base = public_dir, base
 
-    def write(self, path: str, content: str):
+    def write(self, path: str, content: str, canonical: bool = True):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         rel = os.path.relpath(path, self.public_dir)
-        if rel.endswith(".html") and not rel.startswith("..") and rel.replace(os.sep, "/") != "offline.html":
+        if canonical and rel.endswith(".html") and not rel.startswith("..") and rel.replace(os.sep, "/") != "offline.html":
             content = inject_canonical(content, rel, self.base)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
@@ -201,8 +202,8 @@ class PageWriter:
     def path(self, *parts) -> str:
         return os.path.join(self.public_dir, *parts)
 
-    def page(self, rel: str, content: str):
-        self.write(self.path(*rel.split("/")), content)
+    def page(self, rel: str, content: str, canonical: bool = True):
+        self.write(self.path(*rel.split("/")), content, canonical)
 
     def remove(self, rel: str, why: str = ""):
         path = self.path(*rel.split("/"))
@@ -288,17 +289,17 @@ def update_old_diff_pages(public_dir: str, names: dict, updates: list, base, mig
               f"in the container): run once with MIGRATE_DIFF_PAGES=1 to share them.")
 
 
-def render_timelines(writer: PageWriter, env: Environment, updates: list, common: dict):
-    """Three views of the latest part of the timeline (GitHub-style / dashboard / minimal)."""
-    stats = {
-        "updates": len(updates),
-        "sites": len({u["site_slug"] for u in updates if u.get("site_slug")}),
-        "latest": to_jst(updates[0]["created_at"]) if updates else "-",
-    }
-    timeline = updates[:TIMELINE_LIMIT]
-    for page in ROOT_PAGES:
-        writer.page(page, env.get_template(page).render(
-            updates=timeline, stats=stats, limit=TIMELINE_LIMIT, truncated=len(updates) > TIMELINE_LIMIT, **common))
+FORWARD_PAGE = ('<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="robots" content="noindex">'
+                '<meta http-equiv="refresh" content="0; url=./"><title>G醫t</title></head>'
+                '<body><p><a href="./">G醫t のタイムラインへ</a></p></body></html>\n')
+
+
+def render_timeline(writer: PageWriter, env: Environment, updates: list, common: dict):
+    """The latest part of the timeline (index.html); the addresses of the former other styles forward to it."""
+    writer.page("index.html", env.get_template("index.html").render(
+        updates=updates[:TIMELINE_LIMIT], limit=TIMELINE_LIMIT, truncated=len(updates) > TIMELINE_LIMIT, **common))
+    for page in RETIRED_TIMELINES:     # their canonical address is the timeline's
+        writer.page(page, inject_canonical(FORWARD_PAGE, "index.html", writer.base), canonical=False)
 
 
 def render_site_pages(writer: PageWriter, env: Environment, sites: list, common: dict):
@@ -424,7 +425,7 @@ def main():
         publish_root_files(writer, os.path.join(static_dir, "root"), build_id, version, env.globals["pwa_mode"])
     writer.page("offline.html", env.get_template("offline.html").render())
 
-    render_timelines(writer, env, updates, common)
+    render_timeline(writer, env, updates, common)
     render_site_pages(writer, env, sites, common)
     render_static_pages(writer, env, common)
     months, weeks = group_periods(updates)

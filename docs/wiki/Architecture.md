@@ -51,7 +51,7 @@
 
 | ファイル | 内容 |
 |---|---|
-| `index.html` / `dashboard.html` / `minimal.html` | 直近 **200件**の更新。3種類の見た目 |
+| `index.html` | 直近 **200件**の更新（以前の `dashboard.html` / `minimal.html` は、ここへ転送するだけのページ） |
 | `sites.html` | サイト一覧 |
 | `sites/<slug>/history.html` | サイト別の更新歴（全件） |
 | `sites/<slug>/diff_<hash7>.html` | 差分ページ |
