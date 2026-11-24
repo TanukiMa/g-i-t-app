@@ -1,207 +1,33 @@
+"""Build the static dashboard (g-i-t-data/public/) from the rows in Supabase, then commit and push g-i-t-data.
+
+The parts: dashboard_text (times, Markdown, grouping), feeds (search.json, status.json, Atom, sitemap), canonical (one
+address per page), diff_pages (the diff pages). This file reads the data, renders the pages in order and publishes them.
+"""
+import argparse
 import hashlib
-import html
-import json
 import os
 import re
-import sys
-import argparse
 import shutil
-import subprocess
-import xml.etree.ElementTree as ET
-from datetime import date, datetime, timedelta, timezone
-from urllib.parse import quote, urlparse
+import sys
+from datetime import datetime, timezone
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from markupsafe import Markup
 
-from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, STALK_RUNS, STATUS_DELAY_MIN,
-                    STATUS_WINDOW_MIN, SUMMARY_FAILED, SUMMARY_INITIAL, SUMMARY_UNAVAILABLE, TIMELINE_LIMIT,
-                    LEGACY_SUMMARY_INITIAL)
+from canonical import canonical_base, inject_canonical
+from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, LEGACY_SUMMARY_INITIAL, SITE_BASE_URL, SITE_PAGE,
+                    SUMMARY_INITIAL, TIMELINE_LIMIT, env_flag)
+from dashboard_text import excerpt, group_by_day, group_periods, hostname, iso_attr, render_markdown, summary_by, to_jst
+from db import fetch_all, get_supabase
+from diff_pages import (attach_diff_pages, canonicalize_diff_pages, count_unshared, decorate_diff_pages,
+                        externalize_diff_assets, make_diff_pages, select_diff_pages)
+from feeds import build_atom, build_search_index, build_sitemap, build_status, previous_generated, tag_id
 from provision import config_problems, configured_sites, configured_tag_groups
+from shell import git
 
-try:
-    from supabase import create_client, Client
-except ImportError:
-    create_client = None
-
-PAGE_SIZE = 1000
-JST = timezone(timedelta(hours=9))  # no DST, so a fixed offset is exact and needs no tzdata
 ROOT_PAGES = ("index.html", "dashboard.html", "minimal.html")
 
 
-# ---------------------------------------------------------------- template filters
-
-def parse_timestamp(value) -> datetime:
-    """Parse a Supabase timestamptz string (fraction may have 1-6 digits)."""
-    if isinstance(value, datetime):
-        dt = value
-    else:
-        text = str(value).strip().replace("Z", "+00:00")
-        text = re.sub(r"\.(\d+)", lambda m: "." + m.group(1).ljust(6, "0")[:6], text, count=1)
-        dt = datetime.fromisoformat(text)
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")  # fixed: no locale needed
-
-
-def to_jst(value, with_suffix: bool = True, weekday=None) -> str:
-    """JST time text. Full display: "2026-10-07 Wednesday 09:46 JST".
-
-    with_suffix=False gives the short "2026-10-07 09:46" (callers slice it: [:10] date, [11:] time);
-    weekday=True puts the English weekday name after the date in that form too (default: only with the suffix).
-    """
-    if weekday is None:
-        weekday = with_suffix
-    try:
-        dt = parse_timestamp(value).astimezone(JST)
-    except (ValueError, TypeError):
-        return str(value or "")
-    day = f"{dt:%Y-%m-%d} {WEEKDAYS[dt.weekday()]}" if weekday else f"{dt:%Y-%m-%d}"
-    text = f"{day} {dt:%H:%M}"
-    return f"{text} JST" if with_suffix else text
-
-
-def hostname(url) -> str:
-    host = urlparse(str(url)).netloc
-    return host[4:] if host.startswith("www.") else (host or str(url))
-
-
-_BULLET = re.compile(r"^(\s*)([*+\-]|\d+[.)])\s+(.*)$")
-_HEADING = re.compile(r"^#{1,6}\s+(.*)$")
-
-
-def _inline(text: str) -> str:
-    text = html.escape(text, quote=True)  # escape first: nothing from the source can become markup
-    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
-    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
-    return text
-
-
-def render_markdown(text) -> Markup:
-    """Tiny, safe Markdown subset for AI summaries: bullets (nested), **bold**, `code`, paragraphs."""
-    out, indents, para = [], [], []
-
-    def flush_para():
-        if para:
-            out.append("<p>" + _inline(" ".join(para)) + "</p>")
-            para.clear()
-
-    def close_lists():
-        while indents:
-            out.append("</li></ul>")
-            indents.pop()
-
-    for raw in str(text or "").splitlines():
-        if not raw.strip():
-            flush_para()
-            close_lists()
-            continue
-        bullet = _BULLET.match(raw.expandtabs(4))
-        if bullet:
-            flush_para()
-            depth, content = len(bullet.group(1)), bullet.group(3)
-            if not indents or depth > indents[-1]:
-                out.append("<ul>")
-                indents.append(depth)
-            else:
-                while len(indents) > 1 and depth < indents[-1]:
-                    out.append("</li></ul>")
-                    indents.pop()
-                out.append("</li>")
-            out.append("<li>" + _inline(content))
-        elif indents:
-            out.append(" " + _inline(raw.strip()))  # continuation of the current list item
-        else:
-            heading = _HEADING.match(raw.strip())
-            if heading:
-                flush_para()
-                out.append("<p><strong>" + _inline(heading.group(1)) + "</strong></p>")
-            else:
-                para.append(raw.strip())
-    flush_para()
-    close_lists()
-    return Markup("".join(out))
-
-
-def summary_by(model) -> str:
-    """The line at the end of a summary: "<model> による要約". Nothing ("") when the model is unknown (older rows) or no AI
-    was used (summary_model "rule": the text says by itself that nothing changed)."""
-    model = str(model or "").strip()
-    return "" if model in ("", "rule") else f"{model} による要約"
-
-
-def excerpt(summary, limit: int = 90) -> str:
-    """One plain-text line of an AI summary for the site list ("" when there is nothing useful)."""
-    if not summary or summary in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
-        return ""
-    for raw in str(summary).splitlines():
-        line = re.sub(r"^\s*(?:[*+\-]|\d+[.)]|#{1,6})\s+", "", raw).replace("**", "").replace("`", "").strip()
-        if line:
-            return line if len(line) <= limit else line[: limit - 1] + "…"
-    return ""
-
-
-def plain_summary(summary) -> str:
-    """Whole AI summary as one plain-text line for the search index ("" when there is no real summary)."""
-    if not summary or summary in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
-        return ""
-    lines = (re.sub(r"^\s*(?:[*+\-]|\d+[.)]|#{1,6})\s+", "", raw).replace("**", "").replace("`", "").strip()
-             for raw in str(summary).splitlines())
-    return " ".join(line for line in lines if line)
-
-
-def build_search_index(sites: list, updates: list, groups: list = ()) -> str:
-    """JSON for the client-side full-text search: every site and every update summary, no server needed.
-
-    {"v":1,"sites":[[slug,name,url,[tags]]...],"groups":[[heading,[tag...]]...],"updates":[[slug,"YYYY-MM-DD HH:MM",hash7,text,diff_file]...]}
-
-    `groups` = the `tag_groups` of config.yaml (headings and their tags, in the order written); the client apps use it to let
-    a user pick categories. A reader that does not know `groups` ignores it.
-    """
-    rows = []
-    for u in updates:  # newest first
-        text = plain_summary(u.get("summary"))
-        if text and u.get("site_slug"):
-            rows.append([u["site_slug"], to_jst(u["created_at"], with_suffix=False, weekday=True), str(u.get("commit_hash", ""))[:7],
-                         text, u.get("diff_file") or ""])
-    return json.dumps({"v": 1,
-                       "sites": [[s["slug"], s["name"], s.get("url", ""), s.get("tags", [])] for s in sites],
-                       "groups": [[g, list(names)] for g, names in groups],
-                       "updates": rows}, ensure_ascii=False, separators=(",", ":"))
-
-
-def stalk_runs() -> list:
-    """The run times (JST "HH:MM") from STALK_RUNS (env or common.py); entries that are not HH:MM are ignored."""
-    text = os.environ.get("STALK_RUNS") or STALK_RUNS
-    runs = [r.strip() for r in text.split(",") if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", r.strip())]
-    return sorted(set(runs)) or sorted(set(STALK_RUNS.split(",")))
-
-
-def build_status(sites: list, generated: str) -> str:
-    """feeds/status.json: the smallest thing a client app has to fetch to learn whether anything changed.
-
-    {"v":1,"generated":"<UTC>","tz":"Asia/Tokyo","utcOffsetMin":540,"runs":["07:30",...],"delayMin":8,"windowMin":25,
-     "sites":{slug: <7-character hash of the site's newest real update>}}
-    Sites without a real update (only the first snapshot) are left out, like in their Atom feed."""
-    heads = {}
-    for s in sites:
-        real = next((u for u in s.get("updates", []) if u.get("summary") != SUMMARY_INITIAL), None)
-        if real and real.get("commit_hash"):
-            heads[s["slug"]] = str(real["commit_hash"])[:7]
-    return json.dumps({"v": 1, "generated": generated, "tz": "Asia/Tokyo", "utcOffsetMin": 540, "runs": stalk_runs(),
-                       "delayMin": int(os.environ.get("STATUS_DELAY_MIN") or STATUS_DELAY_MIN),
-                       "windowMin": int(os.environ.get("STATUS_WINDOW_MIN") or STATUS_WINDOW_MIN), "sites": heads},
-                      ensure_ascii=False, separators=(",", ":"))
-
-
-def previous_generated(path: str):
-    """The `generated` of the status.json that is already in public/ (None when there is none)."""
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f).get("generated")
-    except (OSError, ValueError):
-        return None
-
+# ---------------------------------------------------------------- data
 
 def build_site_infos(configured: list, updates: list) -> list:
     """One record per monitored site (config order, then sites only known from old updates)."""
@@ -234,11 +60,6 @@ def build_site_infos(configured: list, updates: list) -> list:
     return sites
 
 
-def tag_id(tag: str) -> str:
-    """ASCII-safe id for a (possibly Japanese) tag; used in feed file names."""
-    return "tag-" + hashlib.sha1(tag.encode("utf-8")).hexdigest()[:8]
-
-
 def build_tag_infos(sites: list, groups: list = ()) -> list:
     """[{name, id, count, feed, group}]; count = number of sites carrying the tag. With `tag_groups` in config.yaml the tags
     come in the order of the groups (`group` = the heading); tags in no group follow, sorted by name, with group ""."""
@@ -257,390 +78,6 @@ def build_tag_infos(sites: list, groups: list = ()) -> list:
             for t, g in ordered]
 
 
-def iso_attr(value) -> str:
-    """A time stamp for a <time datetime="..."> attribute: HTML allows at most three digits of a second's fraction, and the
-    database gives six (2026-10-11T07:33:30.134784+00:00)."""
-    return re.sub(r"(\.\d{3})\d+", r"\g<1>", str(value))
-
-
-def jst_datetime(value) -> datetime:
-    return parse_timestamp(value).astimezone(JST)
-
-
-def group_periods(updates: list):
-    """Group updates (newest first) by JST month and ISO week.
-
-    Returns (months, weeks): lists of {key, label, updates, count}, newest first.
-    """
-    months, weeks = {}, {}
-    for u in updates:
-        try:
-            dt = jst_datetime(u["created_at"])
-        except (KeyError, ValueError, TypeError):
-            continue
-        mkey = f"{dt.year}-{dt.month:02d}"
-        iso = dt.isocalendar()
-        wkey = f"{iso[0]}-W{iso[1]:02d}"
-        months.setdefault(mkey, {"key": mkey, "label": f"{dt.year}年{dt.month}月", "updates": []})["updates"].append(u)
-        if wkey not in weeks:
-            monday = date.fromisocalendar(iso[0], iso[1], 1)
-            sunday = monday + timedelta(days=6)
-            weeks[wkey] = {"key": wkey, "label": f"{iso[0]}年第{iso[1]}週",
-                           "range": f"{monday.month}/{monday.day}〜{sunday.month}/{sunday.day}", "updates": []}
-        weeks[wkey]["updates"].append(u)
-
-    def finish(groups):
-        out = sorted(groups.values(), key=lambda g: g["key"], reverse=True)
-        for g in out:
-            g["count"] = len(g["updates"])
-        return out
-
-    return finish(months), finish(weeks)
-
-
-def group_by_day(updates: list) -> list:
-    """[(YYYY-MM-DD (曜), [updates])] newest first, JST days."""
-    youbi = "月火水木金土日"
-    days = {}
-    for u in updates:
-        dt = jst_datetime(u["created_at"])
-        days.setdefault(dt.date(), []).append(u)
-    return [(f"{d.isoformat()}（{youbi[d.weekday()]}）", ups) for d, ups in sorted(days.items(), reverse=True)]
-
-
-ATOM_NS = "http://www.w3.org/2005/Atom"
-ET.register_namespace("", ATOM_NS)
-
-
-def _atom(tag: str) -> str:
-    return f"{{{ATOM_NS}}}{tag}"
-
-
-def build_atom(title: str, feed_path: str, page_path: str, entries: list, names: dict, base_url: str) -> str:
-    """Atom 1.0 feed for the given updates (initial snapshots are not updates and are skipped)."""
-    base = base_url.rstrip("/") + "/"
-    host = urlparse(base).netloc or "g-i-t-data"
-    entries = [u for u in entries if u.get("summary") != SUMMARY_INITIAL]
-    stamps = [parse_timestamp(u["created_at"]) for u in entries]
-    updated = max(stamps) if stamps else datetime.now(timezone.utc)
-
-    feed = ET.Element(_atom("feed"))
-    ET.SubElement(feed, _atom("title")).text = title
-    ET.SubElement(feed, _atom("id")).text = f"tag:{host},2026:g-i-t-data/{feed_path}"
-    ET.SubElement(feed, _atom("updated")).text = updated.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    ET.SubElement(feed, _atom("link"), rel="self", type="application/atom+xml", href=base + feed_path)
-    ET.SubElement(feed, _atom("link"), rel="alternate", type="text/html", href=base + page_path)
-    ET.SubElement(ET.SubElement(feed, _atom("author")), _atom("name")).text = "G醫t"
-
-    for u, stamp in zip(entries, stamps):
-        slug = u.get("site_slug", "")
-        name = names.get(slug, slug)
-        line = excerpt(u.get("summary"))
-        entry = ET.SubElement(feed, _atom("entry"))
-        ET.SubElement(entry, _atom("title")).text = f"{name}: {line}" if line else f"{name}: 更新を検知"
-        ET.SubElement(entry, _atom("id")).text = f"tag:{host},2026:g-i-t-data/{slug}/{u.get('commit_hash', '')}"
-        ET.SubElement(entry, _atom("updated")).text = stamp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        ET.SubElement(entry, _atom("link"), rel="alternate", type="text/html", href=f"{base}sites/{slug}/{SITE_PAGE}")
-        links = [f'<a href="{html.escape(u.get("url", ""), quote=True)}">確認先のページ</a>']
-        if u.get("diff_file"):
-            links.append(f'<a href="{base}sites/{slug}/{u["diff_file"]}">差分</a>')
-        for a in u.get("archives", []):
-            if a.get("kind") == "page" and a.get("status") == "done" and a.get("archive_url"):
-                links.append(f'<a href="{html.escape(a["archive_url"], quote=True)}">Wayback Machine</a>')
-        by = summary_by(u.get("summary_model"))
-        body = (str(render_markdown(u.get("summary"))) + (f"<p><small>{html.escape(by)}</small></p>" if by else "")
-                + "<p>" + " ・ ".join(links) + "</p>")
-        ET.SubElement(entry, _atom("content"), type="html").text = body
-
-    ET.indent(feed)
-    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(feed, encoding="unicode") + "\n"
-
-
-# ---------------------------------------------------------------- data
-
-def attach_diff_pages(updates, public_dir: str):
-    """Set item['diff_file'] for updates whose diff_<hash7>.html was written by website_stalk.py."""
-    for item in updates:
-        slug, commit = item.get("site_slug"), item.get("commit_hash") or ""
-        if not slug or not commit:
-            continue
-        name = f"diff_{commit[:7]}.html"
-        if os.path.isfile(os.path.join(public_dir, "sites", slug, name)):
-            item["diff_file"] = name
-
-
-DIFF_MARK = "<!--git-diff-v2-->"
-DIFF_MARK_V3 = "<!--git-diff-v3-->"     # a diff page that is only a view: the record is diff_<hash7>.patch.txt next to it
-PATCH_SUFFIX = ".patch.txt"
-DIFF_STYLE = (
-    "<style>"
-    ".git-nav{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;align-items:center;margin:0;padding:.6rem 1rem;"
-    "background:#f6f8fa;border-bottom:1px solid #d0d7de;font:14px/1.4 system-ui,sans-serif;text-align:left}"
-    ".git-head{max-width:70rem;margin:0 auto;padding:1rem 1rem .5rem;text-align:left;font:15px/1.7 system-ui,'Hiragino Sans','Yu Gothic',sans-serif;color:#1f2328}"
-    ".git-head h1{font-size:1.35rem;margin:.2rem 0 .6rem;color:inherit}"
-    ".git-head dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem;margin:0 0 .8rem}"
-    ".git-head dt{color:#656d76}.git-head dd{margin:0;overflow-wrap:anywhere}"
-    ".git-head details{margin:.5rem 0;padding:.5rem .9rem;border:1px solid #d0d7de;border-radius:8px}"
-    ".git-head summary{cursor:pointer;font-weight:600}"
-    ".git-head .how{color:#656d76;font-size:.9em;margin:.4rem 0 0}"
-    ".git-head .by{color:#656d76;font-size:.8em;margin:.3rem 0 0;text-align:right}"
-    ".git-foot{max-width:70rem;margin:2rem auto 1.5rem;padding:0 1rem;text-align:center;font:13px/1.6 system-ui,sans-serif;color:#656d76}"
-    ".git-nav a,.git-head a,.git-foot a{color:#0969da;text-decoration:none}"
-    ".git-nav a:hover,.git-head a:hover,.git-foot a:hover{text-decoration:underline}"
-    ".git-nav span{color:#656d76}"
-    "@media (prefers-color-scheme:dark){.git-nav{background:#161b22;border-color:#30363d}"
-    ".git-head{color:#e6edf3}.git-head details{border-color:#30363d}"
-    ".git-head dt,.git-head .how,.git-head .by,.git-nav span,.git-foot{color:#8b949e}"
-    ".git-nav a,.git-head a,.git-foot a{color:#58a6ff}}"
-    "</style>"
-)
-_DIFF_OLD_NAV = re.compile(r"<!--git-nav-->.*?</nav>", re.S)
-
-
-def diff_head_foot(slug: str, hash7: str, names: dict, by_key: dict, mark: str):
-    """(site name, update time, header html, footer html) of a diff page: link bar, what/when/where, the AI summary."""
-    site = html.escape(names.get(slug, slug))
-    upd = by_key.get((slug, hash7))
-    when = html.escape(to_jst(upd["created_at"])) if upd else ""
-
-    rows = []
-    if when:
-        rows.append(f"<dt>更新日時</dt><dd>{when}</dd>")
-    if upd and upd.get("url"):
-        url = html.escape(upd["url"], quote=True)
-        rows.append(f'<dt>確認先のページ</dt><dd><a href="{url}" target="_blank" rel="noopener noreferrer">{url}</a></dd>')
-    if upd and upd.get("commit_hash"):
-        commit = html.escape(str(upd["commit_hash"]), quote=True)
-        rows.append(f'<dt>記録</dt><dd><a href="{DATA_REPO_URL}/commit/{commit}" target="_blank" '
-                    f'rel="noopener noreferrer">commit {commit[:7]}</a></dd>')
-    summary = ""
-    text = (upd or {}).get("summary") or ""
-    if text and text not in (SUMMARY_INITIAL, SUMMARY_FAILED, SUMMARY_UNAVAILABLE):
-        by = summary_by((upd or {}).get("summary_model"))
-        by_note = f'<p class="by">{html.escape(by)}</p>' if by else ""
-        summary = (f'<details open><summary>AI による要約</summary>{render_markdown(text)}{by_note}'
-                   '<p class="how">AI の要約は誤りを含むことがあります。下の差分、または確認先のページで確かめてください。</p></details>')
-    head = (f'{mark}<nav class="git-nav">'
-            f'<a href="{SITE_PAGE}" onclick="if(document.referrer&&history.length>1){{history.back();return false}}">← 戻る</a>'
-            f'<a href="{SITE_PAGE}">📜 {site} の更新歴</a>'
-            f'<a href="../../">全体タイムライン</a>'
-            f'<a href="../../sites.html">サイト一覧</a></nav>'
-            f'<header class="git-head"><h1>{site} の更新差分</h1>'
-            f'<dl>{"".join(rows)}</dl>{summary}'
-            f'<p class="how">ページのテキストの、前回の確認との違いです。左が変更前、右が変更後で、'
-            f'<strong>緑</strong>が追加、<strong>赤</strong>が削除された部分です。</p></header>')
-    foot = ('<footer class="git-foot"><p>G醫t が記録した差分です。'
-            f'<a href="../../about.html">G醫tについて</a> ・ <a href="../../">全体タイムライン</a></p>'
-            '<p>差分の表示: Diff to HTML by <a href="https://github.com/rtfpessoa">rtfpessoa</a>（diff2html）</p></footer>')
-    return site, when, head, foot
-
-
-def decorate_diff_pages(public_dir: str, names: dict, updates: list, only=None) -> int:
-    """Make every diff page understandable on its own.
-
-    diff2html writes a standalone page headed "Diff to HTML by rtfpessoa". Here that heading is replaced by
-    what the visitor needs: which site and update this is, when, the monitored page, the commit and the AI
-    summary, plus how to read the two columns. A link bar leads back, and the credit moves to the footer.
-    Done for all existing diff pages (also those of earlier runs); the marker keeps it idempotent.
-    only: the paths to work on (None = all). Returns the number of pages changed.
-    """
-    by_key = {(u.get("site_slug"), str(u.get("commit_hash", ""))[:7]): u for u in updates}
-    sites_root = os.path.join(public_dir, "sites")
-    changed = 0
-    for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
-        folder = os.path.join(sites_root, slug)
-        for name in sorted(os.listdir(folder)):
-            if not (name.startswith("diff_") and name.endswith(".html")):
-                continue
-            path = os.path.join(folder, name)
-            if only is not None and path not in only:
-                continue
-            with open(path, "r", encoding="utf-8") as f:
-                page = f.read()
-            if DIFF_MARK in page:
-                # decorated by an earlier build: only the link to the timeline changed (directory URL, no index.html)
-                fixed = page.replace('href="../../index.html"', 'href="../../"')
-                if fixed != page:
-                    with open(path, "w", encoding="utf-8", newline="") as f:
-                        f.write(fixed)
-                    changed += 1
-                continue
-            if not re.search(r"<body[^>]*>", page):
-                continue
-            page = _DIFF_OLD_NAV.sub("", page)      # bar of the first version of this feature
-            hash7 = name[5:-5]
-            site, when, head, foot = diff_head_foot(slug, hash7, names, by_key, DIFF_MARK)
-            page = re.sub(r"<h1>Diff to HTML by .*?</h1>", "", page, count=1, flags=re.S)
-            page = re.sub(r"<body[^>]*>", lambda m: m.group(0) + head, page, count=1)
-            page = page.replace("</body>", foot + "</body>", 1)
-            page = page.replace("</head>", DIFF_STYLE + "</head>", 1)
-            page = re.sub(r"<title>.*?</title>", lambda m: f"<title>差分 {site} {when or hash7} - G醫t</title>", page, count=1, flags=re.S)
-            with open(path, "w", encoding="utf-8", newline="") as f:
-                f.write(page)
-            changed += 1
-    return changed
-
-
-# diff2html writes its whole style sheet (~17 KB) and script bundle (~300 KB) into every page. That is >90% of each page,
-# and the container's file system lives in memory (1 GiB), so hundreds of pages used up the memory of the run. Both are
-# the same in every page: they are written once to assets/diff/ (named by content) and the pages link to them.
-SHARED_DIFF_DIR = os.path.join("assets", "diff")
-# One pattern for both: the leftmost block wins and its content is not scanned again (the script bundle contains the text "<style").
-_INLINE_BLOCK = re.compile(r"<(style|script)>(.*?)</" + chr(92) + r"1>", re.S)
-SHARED_STYLE_MIN, SHARED_SCRIPT_MIN = 5000, 50000   # our own DIFF_STYLE (~2 KB) and the small scripts stay inline
-
-
-def externalize_diff_assets(public_dir: str, only=None) -> int:
-    """Move the big inline <style> / <script> of every diff page to files shared by all pages. Returns pages changed."""
-    sites_root = os.path.join(public_dir, "sites")
-    if not os.path.isdir(sites_root):
-        return 0
-    shared_dir = os.path.join(public_dir, SHARED_DIFF_DIR)
-    written = set()
-
-    def shared(text: str, ext: str) -> str:
-        name = f"diff2html-{hashlib.sha1(text.encode('utf-8')).hexdigest()[:10]}.{ext}"
-        if name not in written:
-            os.makedirs(shared_dir, exist_ok=True)
-            path = os.path.join(shared_dir, name)
-            if not os.path.isfile(path):
-                with open(path, "w", encoding="utf-8", newline="") as f:
-                    f.write(text)
-            written.add(name)
-        return f"../../{SHARED_DIFF_DIR.replace(os.sep, '/')}/{name}"
-
-    def swap(m):
-        tag, body = m.group(1), m.group(2)
-        if tag == "style" and len(body) >= SHARED_STYLE_MIN:
-            return f'<link rel="stylesheet" href="{shared(body, "css")}">'
-        if tag == "script" and len(body) >= SHARED_SCRIPT_MIN:
-            return f'<script src="{shared(body, "js")}"></script>'
-        return m.group(0)
-
-    changed = 0
-    for slug in os.listdir(sites_root):
-        folder = os.path.join(sites_root, slug)
-        if not os.path.isdir(folder):
-            continue
-        for name in os.listdir(folder):
-            if not (name.startswith("diff_") and name.endswith(".html")):
-                continue
-            path = os.path.join(folder, name)
-            if only is not None and path not in only:
-                continue
-            with open(path, "r", encoding="utf-8", newline="") as f:
-                page = f.read()
-            new = _INLINE_BLOCK.sub(swap, page)
-            if new != page:
-                with open(path, "w", encoding="utf-8", newline="") as f:
-                    f.write(new)
-                changed += 1
-    return changed
-
-
-# A diff page is a record: once it has been made it is not touched again. The marker DIFF_MARK (written by
-# decorate_diff_pages) tells a finished page; the build decorates, shares the style and script of, and adds the
-# canonical link to the pages that do not have it yet (those of this run), and leaves every other page as it is, so
-# a change of the design, the domain or this script never rewrites the past. MIGRATE_DIFF_PAGES=1 (or
-# --migrate-diff-pages) works on all pages once, for such a deliberate change.
-
-def diff_page_paths(public_dir: str):
-    sites_root = os.path.join(public_dir, "sites")
-    for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
-        folder = os.path.join(sites_root, slug)
-        if os.path.isdir(folder):
-            for name in sorted(os.listdir(folder)):
-                if name.startswith("diff_") and name.endswith(".html"):
-                    yield os.path.join(folder, name)
-
-
-def select_diff_pages(public_dir: str, migrate: bool):
-    """(pages to work on, pages left alone). With migrate every page is worked on."""
-    fresh, frozen = set(), []
-    for path in diff_page_paths(public_dir):
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            page = f.read()
-        if DIFF_MARK_V3 in page:        # a page of the new kind (patch + view): make_diff_pages looks after it
-            continue
-        if migrate or DIFF_MARK not in page:
-            fresh.add(path)
-        else:
-            frozen.append(path)
-    return fresh, frozen
-
-
-def count_unshared(paths) -> int:
-    """How many of the finished pages still carry their own copy of the style and script (made before they were shared)."""
-    n = 0
-    for path in paths:
-        if os.path.getsize(path) < 250_000:
-            continue
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            if SHARED_DIFF_DIR.replace(os.sep, "/") + "/" not in f.read(40_000):
-                n += 1
-    return n
-
-
-# A diff page is a view of a patch. website_stalk.py writes the raw `git show` output of the commit as
-# diff_<hash7>.patch.txt (the record: plain text, about 13 KB on average); this builds diff_<hash7>.html next to it, a small
-# page with the header, the AI summary and the shared diff2html (assets/diff/) that draws the patch in the browser. The
-# page is written when it is missing or still of the old kind (diff2html's own HTML, 100 KB-9 MB, which made the container
-# run out of memory); a page that already has the marker is left as it is (MIGRATE_DIFF_PAGES=1: all are written again).
-DIFF_VIEW_CSS = (
-    "<style>@media screen and (prefers-color-scheme:light){body{background-color:var(--d2h-bg-color)}}"
-    "@media screen and (prefers-color-scheme:dark){body{background-color:rgb(13,17,23)}}"
-    ".git-note{max-width:70rem;margin:.5rem auto;padding:0 1rem;text-align:left;font:14px/1.6 system-ui,sans-serif}"
-    "#diff{text-align:left}</style>"
-)
-HLJS = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/"
-
-
-def render_diff_view(slug: str, hash7: str, names: dict, by_key: dict, base, version: str) -> str:
-    site, when, head, foot = diff_head_foot(slug, hash7, names, by_key, "")
-    patch = f"diff_{hash7}{PATCH_SUFFIX}"
-    v = f"?v={version}" if version else ""
-    page = (
-        "<!doctype html>" + DIFF_MARK_V3 + '<html lang="ja"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>差分 {site} {when or hash7} - G醫t</title>"
-        f'<link rel="stylesheet" href="{HLJS}github.min.css" media="screen and (prefers-color-scheme: light)">'
-        f'<link rel="stylesheet" href="{HLJS}github-dark.min.css" media="screen and (prefers-color-scheme: dark)">'
-        f'<link rel="stylesheet" href="../../assets/diff/diff2html.css{v}">{DIFF_VIEW_CSS}{DIFF_STYLE}</head>'
-        "<body style=\"text-align: center; font-family: 'Source Sans Pro', sans-serif\">"
-        f'{head}<div id="diff" data-patch="{patch}"></div>'
-        '<p id="diff-note" class="git-note" hidden></p>'
-        f'<noscript><p class="git-note">差分の表示には JavaScript が必要です。</p></noscript>'
-        f'<p class="git-note"><a href="{patch}">元の差分（テキスト）</a></p>{foot}'
-        f'<script src="../../assets/diff/diff2html-ui.js{v}"></script><script src="../../assets/diff/diff-view.js{v}"></script>'
-        "</body></html>" + chr(10)
-    )
-    return inject_canonical(page, f"sites/{slug}/diff_{hash7}.html", base)
-
-
-def make_diff_pages(public_dir: str, names: dict, updates: list, base, migrate: bool, version: str) -> int:
-    """Write diff_<hash7>.html for every diff_<hash7>.patch.txt that has no page of the new kind yet. Returns how many."""
-    by_key = {(u.get("site_slug"), str(u.get("commit_hash", ""))[:7]): u for u in updates}
-    sites_root = os.path.join(public_dir, "sites")
-    made = 0
-    for slug in sorted(os.listdir(sites_root)) if os.path.isdir(sites_root) else []:
-        folder = os.path.join(sites_root, slug)
-        if not os.path.isdir(folder):
-            continue
-        for name in sorted(os.listdir(folder)):
-            if not (name.startswith("diff_") and name.endswith(PATCH_SUFFIX)):
-                continue
-            hash7 = name[5:-len(PATCH_SUFFIX)]
-            page_path = os.path.join(folder, f"diff_{hash7}.html")
-            if os.path.isfile(page_path) and not migrate:
-                with open(page_path, "r", encoding="utf-8", errors="replace") as f:
-                    if DIFF_MARK_V3 in f.read(300):
-                        continue
-            with open(page_path, "w", encoding="utf-8", newline="") as f:
-                f.write(render_diff_view(slug, hash7, names, by_key, base, version))
-            made += 1
-    return made
-
-
 def normalize_legacy_summaries(updates: list) -> int:
     """Show the first-snapshot rows written with an older text as the current SUMMARY_INITIAL (Supabase is not touched)."""
     n = 0
@@ -651,29 +88,12 @@ def normalize_legacy_summaries(updates: list) -> int:
     return n
 
 
-def fetch_all(supabase, table: str) -> list:
-    """Page through a table; PostgREST caps each response (1000 by default)."""
-    rows = []
-    while True:
-        res = (supabase.table(table).select("*")
-               .order("id", desc=True)
-               .range(len(rows), len(rows) + PAGE_SIZE - 1).execute())
-        rows.extend(res.data or [])
-        if len(res.data or []) < PAGE_SIZE:
-            return rows
-
-
 def fetch_updates_from_supabase():
-    """Return updates (newest first), each with an 'archives' list from archive_queue."""
-    supa_url = os.environ.get("SUPABASE_URL")
-    supa_key = os.environ.get("SUPABASE_KEY")
-
-    if not create_client or not supa_url or not supa_key:
-        print("Supabase config missing.")
+    """Return updates (newest first), each with an 'archives' list from archive_queue; None when they cannot be read."""
+    supabase = get_supabase()
+    if not supabase:
         return None
-
     try:
-        supabase: Client = create_client(supa_url, supa_key)
         updates = fetch_all(supabase, "updates")
         queue = fetch_all(supabase, "archive_queue")
     except Exception as e:
@@ -691,19 +111,10 @@ def fetch_updates_from_supabase():
 
 # ---------------------------------------------------------------- git
 
-def git(args, cwd):
-    print(f"Executing in {cwd}: git {' '.join(args)}")
-    res = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True,
-                         encoding="utf-8", errors="replace")
-    if res.returncode != 0 and "--quiet" not in args:  # --quiet uses exit 1 as "has changes"
-        print(f"git {args[0]} failed ({res.returncode}): {res.stderr}")
-    return res
-
-
 def commit_and_push_parent(data_dir: str) -> bool:
     """Commit the regenerated public/ (and anything else pending) and push g-i-t-data."""
     git(["add", "-A"], data_dir)
-    if git(["diff", "--cached", "--quiet"], data_dir).returncode == 0:
+    if git(["diff", "--cached", "--quiet"], data_dir, ok_codes=(0, 1)).returncode == 0:   # exit 1 = "has changes"
         print("No parent repository changes to commit.")
         return True
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -712,7 +123,7 @@ def commit_and_push_parent(data_dir: str) -> bool:
     return git(["push", "origin", "HEAD"], data_dir).returncode == 0
 
 
-# ---------------------------------------------------------------- build
+# ---------------------------------------------------------------- settings from the environment
 
 _GA_ID_RE = re.compile(r"^G-[A-Z0-9]{4,20}$")
 _CF_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -729,101 +140,6 @@ def analytics_settings() -> dict:
         print("WARNING: CF_BEACON_TOKEN has an unexpected format; Cloudflare Web Analytics is off.")
         cf_token = ""
     return {"ga_id": ga_id, "cf_token": cf_token, "enabled": bool(ga_id or cf_token)}
-
-# ---- one address per page: <link rel="canonical"> and a move away from the default Firebase addresses ----
-CANON_START, CANON_END = "<!--git-canon-->", "<!--/git-canon-->"
-_canon = {"base": None, "public": ""}      # set by main(): the canonical base address, and the folder of public/
-
-
-def canonical_base():
-    """The address the pages must be known by: SITE_BASE_URL, when it is a real site of its own. None for GitHub Pages
-    (github.io: the old address, which only forwards), localhost and an empty value: then the pages stay as they are."""
-    base = os.environ.get("SITE_BASE_URL", SITE_BASE_URL).strip()
-    host = urlparse(base).netloc.lower().split(":")[0]
-    if not host or host.endswith("github.io") or host in ("localhost", "127.0.0.1"):
-        return None
-    return base if base.endswith("/") else base + "/"
-
-
-def canonical_url(base: str, rel_path: str) -> str:
-    """public/<rel_path> -> its address: index.html is the directory address, other pages keep their file name."""
-    rel = rel_path.replace(os.sep, "/")
-    if rel == "index.html":
-        rel = ""
-    elif rel.endswith("/index.html"):
-        rel = rel[: -len("index.html")]
-    return base + quote(rel, safe="/%")
-
-
-def inject_canonical(page: str, rel_path: str, base) -> str:
-    """Put the canonical link (and, for a custom domain, the move away from *.web.app / *.firebaseapp.com) right after <head>.
-
-    The Hosting default addresses (SITE.web.app, SITE.firebaseapp.com) cannot be switched off and serve the same files, so
-    a search engine could list every page three times: the canonical link names the one real address, and a visitor who
-    arrives on a default address is sent to the same page on the real one (path, query and #fragment kept). A block of an
-    earlier build is replaced, and removed when there is no canonical base any more (SITE_BASE_URL back on github.io)."""
-    page = re.sub(re.escape(CANON_START) + r".*?" + re.escape(CANON_END), "", page, flags=re.S)
-    if not base:
-        return page
-    m = re.search(r"<head[^>]*>", page, re.I)
-    if not m:
-        return page
-    block = f'{CANON_START}<link rel="canonical" href="{html.escape(canonical_url(base, rel_path), quote=True)}">'
-    host = urlparse(base).netloc.lower().split(":")[0]
-    if not host.endswith((".web.app", ".firebaseapp.com")):      # on a default address itself there would be a loop
-        block += ('<script>(function(){if(/\\.(web\\.app|firebaseapp\\.com)$/i.test(location.hostname)){location.replace('
-                  + json.dumps(base) + '+location.pathname.replace(/^\\/+/,"")+location.search+location.hash)}})();</script>')
-    return page[:m.end()] + block + CANON_END + page[m.end():]
-
-
-def write(path: str, content: str):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    rel = os.path.relpath(path, _canon["public"]) if _canon["public"] else ""
-    if rel.endswith(".html") and not rel.startswith("..") and rel.replace(os.sep, "/") != "offline.html":
-        content = inject_canonical(content, rel, _canon["base"])
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-    print(f"Generated {path}")
-
-
-def canonicalize_diff_pages(public_dir: str, base, only=None) -> int:
-    """The diff pages are written by diff2html and decorated earlier (decorate_diff_pages): give them the canonical link too.
-    Only a page that changes is written again. Returns how many."""
-    changed = 0
-    sites_root = os.path.join(public_dir, "sites")
-    if not os.path.isdir(sites_root):
-        return 0
-    for slug in os.listdir(sites_root):
-        folder = os.path.join(sites_root, slug)
-        if not os.path.isdir(folder):
-            continue
-        for name in os.listdir(folder):
-            if not (name.startswith("diff_") and name.endswith(".html")):
-                continue
-            path = os.path.join(folder, name)
-            if only is not None and path not in only:
-                continue
-            with open(path, "r", encoding="utf-8", newline="") as f:
-                page = f.read()
-            new = inject_canonical(page, f"sites/{slug}/{name}", base)
-            if new != page:
-                with open(path, "w", encoding="utf-8", newline="") as f:
-                    f.write(new)
-                changed += 1
-    return changed
-
-
-def asset_version(static_dir: str) -> str:
-    """Short hash of the CSS/JS/icons (not of the build time): the URL of an asset changes only when the asset does."""
-    digest = hashlib.sha1()
-    for folder, dirs, files in os.walk(static_dir):
-        dirs[:] = sorted(d for d in dirs if d != "root")
-        for name in sorted(files):
-            path = os.path.join(folder, name)
-            digest.update(os.path.relpath(path, static_dir).replace(os.sep, "/").encode("utf-8"))
-            with open(path, "rb") as f:
-                digest.update(f.read())
-    return digest.hexdigest()[:10]
 
 
 def pwa_passphrase_hash() -> str:
@@ -846,12 +162,56 @@ def pwa_mode() -> str:
     return "on"
 
 
-def pwa_enabled() -> bool:
-    """True only in mode "on": the manifest is in every page."""
-    return pwa_mode() == "on"
+def done_file():
+    """DASHBOARD_DONE_FILE: a file outside the repository that proves a build ran to the end (container/entrypoint.sh
+    deploys only when it exists, so a build that died, e.g. out of memory, never publishes the old pages as if new)."""
+    return os.environ.get("DASHBOARD_DONE_FILE", "").strip()
 
 
-def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: str = "", mode: str = "on"):
+def asset_version(static_dir: str) -> str:
+    """Short hash of the CSS/JS/icons (not of the build time): the URL of an asset changes only when the asset does."""
+    digest = hashlib.sha1()
+    for folder, dirs, files in os.walk(static_dir):
+        dirs[:] = sorted(d for d in dirs if d != "root")
+        for name in sorted(files):
+            path = os.path.join(folder, name)
+            digest.update(os.path.relpath(path, static_dir).replace(os.sep, "/").encode("utf-8"))
+            with open(path, "rb") as f:
+                digest.update(f.read())
+    return digest.hexdigest()[:10]
+
+
+# ---------------------------------------------------------------- writing
+
+class PageWriter:
+    """Writes the files of public/. Every HTML page (not offline.html) gets the canonical link of its address."""
+
+    def __init__(self, public_dir: str, base):
+        self.public_dir, self.base = public_dir, base
+
+    def write(self, path: str, content: str):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        rel = os.path.relpath(path, self.public_dir)
+        if rel.endswith(".html") and not rel.startswith("..") and rel.replace(os.sep, "/") != "offline.html":
+            content = inject_canonical(content, rel, self.base)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"Generated {path}")
+
+    def path(self, *parts) -> str:
+        return os.path.join(self.public_dir, *parts)
+
+    def page(self, rel: str, content: str):
+        self.write(self.path(*rel.split("/")), content)
+
+    def remove(self, rel: str, why: str = ""):
+        path = self.path(*rel.split("/"))
+        if os.path.isfile(path):
+            os.remove(path)
+            print(f"Removed {path}" + (f" ({why})" if why else ""))
+
+
+def publish_root_files(writer: PageWriter, src_dir: str, build_id: str, version: str = "", mode: str = "on"):
     """Copy manifest.webmanifest / sw.js to the site root (a service worker only controls its own directory).
 
     mode "on":    manifest.webmanifest and sw.js (the full worker).
@@ -873,59 +233,142 @@ def publish_root_files(src_dir: str, public_dir: str, build_id: str, version: st
         if not os.path.isfile(path):
             continue
         if mode == "off" and name == "manifest.webmanifest":
-            stale = os.path.join(public_dir, name)
-            if os.path.isfile(stale):
-                os.remove(stale)
-                print(f"Removed {stale} (PWA_ENABLED=0)")
+            writer.remove(name, "PWA_ENABLED=0")
             continue
         if mode != "on" and name == "sw.js":
-            write(os.path.join(public_dir, "sw.js"), render(os.path.join(os.path.dirname(src_dir), "sw-retire.js")))
+            writer.page("sw.js", render(os.path.join(os.path.dirname(src_dir), "sw-retire.js")))
             if mode == "optin":
-                write(os.path.join(public_dir, "sw-app.js"), render(path))
+                writer.page("sw-app.js", render(path))
             continue
-        write(os.path.join(public_dir, name), render(path))
-    stale_app = os.path.join(public_dir, "sw-app.js")
-    if mode != "optin" and os.path.isfile(stale_app):
-        os.remove(stale_app)
-        print(f"Removed {stale_app} (PWA_ENABLED is not optin)")
+        writer.page(name, render(path))
+    if mode != "optin":
+        writer.remove("sw-app.js", "PWA_ENABLED is not optin")
 
 
-def _lastmod(updates: list):
-    """W3C date (JST) of the newest update in the list, or None."""
-    best = None
-    for u in updates:
-        try:
-            dt = jst_datetime(u["created_at"])
-        except (KeyError, ValueError, TypeError):
-            continue
-        if best is None or dt > best:
-            best = dt
-    return best.strftime("%Y-%m-%d") if best else None
+# ---------------------------------------------------------------- the pages
+
+def make_env(templates_dir: str, sites: list, version: str) -> Environment:
+    """Jinja environment with the filters and globals of every template. Summaries derive from untrusted web content, so
+    everything is escaped (render_markdown escapes first)."""
+    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=select_autoescape(["html"]))
+    names = {s["slug"]: s["name"] for s in sites}
+    site_by_slug = {s["slug"]: s for s in sites}
+    env.filters.update(
+        jst=to_jst, iso_attr=iso_attr, hostname=hostname, md=render_markdown, excerpt=excerpt, summary_by=summary_by,
+        jst_hm=lambda v: to_jst(v, with_suffix=False)[11:],
+        site_name=lambda slug: names.get(slug, slug),
+        site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
+    )
+    mode = pwa_mode()
+    env.globals.update(pwa_enabled=(mode == "on"), pwa_mode=mode, pwa_hash=pwa_passphrase_hash() if mode == "optin" else "",
+                       initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
+                       analytics=analytics_settings(), asset_version=version)
+    return env
 
 
-def build_sitemap(base: str, sites: list, months: list, weeks: list, updates: list) -> str:
-    """sitemap.xml: the pages worth finding in a search engine (timeline, site list, About, archive, one history page per site).
-    Not listed: the diff pages (thousands of near-empty comparison pages), dashboard.html / minimal.html (the same timeline in
-    other styles), privacy.html and offline.html. Addresses are the canonical ones (see canonical_url)."""
-    entries = [("index.html", _lastmod(updates)), ("sites.html", _lastmod(updates)), ("about.html", None), ("guide.html", None),
-               ("archive/index.html", _lastmod(updates))]
-    entries += [(f"archive/{g['key']}.html", _lastmod(g["updates"])) for g in weeks + months]
-    entries += [(f"sites/{s['slug']}/{SITE_PAGE}", _lastmod(s["updates"])) for s in sites]
-    lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
-    for rel, mod in entries:
-        loc = html.escape(canonical_url(base, rel), quote=False)
-        lines.append(f"  <url><loc>{loc}</loc>" + (f"<lastmod>{mod}</lastmod>" if mod else "") + "</url>")
-    lines.append("</urlset>")
-    return "\n".join(lines) + "\n"
+def prepare_diff_pages(public_dir: str, configured: list, updates: list, base, migrate: bool, version: str):
+    """Write the diff pages of new patches, then look after the pages of the old kind (see diff_pages.py)."""
+    made = make_diff_pages(public_dir, {s_["slug"]: s_["name"] for s_ in configured}, updates, base, migrate, version)
+    print(f"Diff pages written from their patches: {made}.")
+    attach_diff_pages(updates, public_dir)
+    return made
 
 
-def done_file():
-    """DASHBOARD_DONE_FILE: a file outside the repository that proves a build ran to the end (container/entrypoint.sh
-    deploys only when it exists, so a build that died, e.g. out of memory, never publishes the old pages as if new)."""
-    return os.environ.get("DASHBOARD_DONE_FILE", "").strip()
+def update_old_diff_pages(public_dir: str, names: dict, updates: list, base, migrate: bool):
+    fresh, frozen = select_diff_pages(public_dir, migrate)
+    print(f"Diff pages: {len(fresh)} to make{' (all of them: --migrate-diff-pages)' if migrate else ''}, "
+          f"{len(frozen)} finished ones left as they are.")
+    print(f"Decorated {decorate_diff_pages(public_dir, names, updates, only=fresh)} diff page(s).")
+    print(f"Moved the shared style and script out of {externalize_diff_assets(public_dir, only=fresh)} diff page(s).")
+    print(f"Canonical address: {base or '(none: SITE_BASE_URL is GitHub Pages or local)'}; "
+          f"{canonicalize_diff_pages(public_dir, base, only=fresh)} diff page(s) changed.")
+    unshared = count_unshared(frozen)
+    if unshared:
+        print(f"{unshared} finished diff page(s) still hold their own copy of the style and script (about 300 KB each, in memory "
+              f"in the container): run once with MIGRATE_DIFF_PAGES=1 to share them.")
 
 
-def main():
+def render_timelines(writer: PageWriter, env: Environment, updates: list, common: dict):
+    """Three views of the latest part of the timeline (GitHub-style / dashboard / minimal)."""
+    stats = {
+        "updates": len(updates),
+        "sites": len({u["site_slug"] for u in updates if u.get("site_slug")}),
+        "latest": to_jst(updates[0]["created_at"]) if updates else "-",
+    }
+    timeline = updates[:TIMELINE_LIMIT]
+    for page in ROOT_PAGES:
+        writer.page(page, env.get_template(page).render(
+            updates=timeline, stats=stats, limit=TIMELINE_LIMIT, truncated=len(updates) > TIMELINE_LIMIT, **common))
+
+
+def render_site_pages(writer: PageWriter, env: Environment, sites: list, common: dict):
+    """Overview of every monitored site, and one history page per site (also for sites without updates yet)."""
+    writer.page("sites.html", env.get_template("sites.html").render(**common))
+    site_template = env.get_template("site_detail.html")
+    for site in sites:
+        writer.page(f"sites/{site['slug']}/{SITE_PAGE}", site_template.render(site=site, updates=site["updates"], **common))
+    # Migration: site pages used to be sites/<slug>/index.html; drop the stale copies from public/.
+    sites_root = writer.path("sites")
+    for entry in os.listdir(sites_root) if os.path.isdir(sites_root) else []:
+        writer.remove(f"sites/{entry}/index.html")
+
+
+def render_static_pages(writer: PageWriter, env: Environment, common: dict):
+    """About page, user guide, privacy notice (its text follows which analytics IDs are configured)."""
+    for page in ("about.html", "guide.html", "privacy.html"):
+        writer.page(page, env.get_template(page).render(**common))
+
+
+def render_archive(writer: PageWriter, env: Environment, months: list, weeks: list, common: dict):
+    """Archive: everything older than the timeline, by week and by month."""
+    writer.page("archive/index.html", env.get_template("archive_index.html").render(months=months, weeks=weeks, **common))
+    for i, week in enumerate(weeks):
+        writer.page(f"archive/{week['key']}.html", env.get_template("archive_week.html").render(
+            period=week, newer=weeks[i - 1] if i > 0 else None, older=weeks[i + 1] if i + 1 < len(weeks) else None, **common))
+    for i, month in enumerate(months):
+        writer.page(f"archive/{month['key']}.html", env.get_template("archive_month.html").render(
+            period=month, days=group_by_day(month["updates"]), newer=months[i - 1] if i > 0 else None,
+            older=months[i + 1] if i + 1 < len(months) else None, **common))
+
+
+def write_feeds(writer: PageWriter, sites: list, tags: list, updates: list, tag_groups: list, keep_generated: bool):
+    """search.json, feeds/status.json and the Atom feeds (all sites, per site, per tag)."""
+    base_url = os.environ.get("SITE_BASE_URL", SITE_BASE_URL)
+    names = {s["slug"]: s["name"] for s in sites}
+    site_by_slug = {s["slug"]: s for s in sites}
+    # Full-text search index (loaded by assets/app.js when the visitor starts searching)
+    writer.page("search.json", build_search_index(sites, updates, tag_groups))
+    # feeds/status.json: what the client apps poll (one small file instead of one feed per followed site).
+    # A rebuild without a run (--no-push) keeps the old time: "generated" tells a client that a RUN has finished.
+    status_path = writer.path("feeds", "status.json")
+    generated_utc = (previous_generated(status_path) if keep_generated else None) or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    writer.write(status_path, build_status(sites, generated_utc))
+    writer.page("feeds/all.xml",
+                build_atom("G醫t 更新情報（すべて）", "feeds/all.xml", "", updates[:FEED_LIMIT_ALL], names, base_url))
+    for site in sites:
+        writer.page(f"feeds/{site['slug']}.xml",
+                    build_atom(f"G醫t {site['name']}", site["feed"], f"sites/{site['slug']}/{SITE_PAGE}",
+                               site["updates"][:FEED_LIMIT_SITE], names, base_url))
+    for tag in tags:
+        tagged = [u for u in updates if tag["name"] in site_by_slug.get(u.get("site_slug"), {}).get("tags", [])]
+        writer.page(f"feeds/{tag['id']}.xml",
+                    build_atom(f"G醫t 分類: {tag['name']}", tag["feed"], "sites.html", tagged[:FEED_LIMIT_SITE], names, base_url))
+
+
+def write_sitemap(writer: PageWriter, sites: list, months: list, weeks: list, updates: list):
+    """sitemap.xml and robots.txt: only for a site of its own (see canonical_base); otherwise remove stale copies."""
+    canon = writer.base
+    if not canon:
+        writer.remove("sitemap.xml")
+        writer.remove("robots.txt")
+        return
+    writer.page("sitemap.xml", build_sitemap(canon, sites, months, weeks, updates))
+    writer.page("robots.txt", f"User-agent: *\nAllow: /\n\nSitemap: {canon}sitemap.xml\n")
+
+
+# ---------------------------------------------------------------- main
+
+def parse_args():
     parser = argparse.ArgumentParser(description="Build static dashboard for G-I-T")
     parser.add_argument("--data-dir", default="./data", help="Path to g-i-t-data repository")
     parser.add_argument("--no-push", action="store_true",
@@ -934,11 +377,13 @@ def main():
                         help="work on ALL diff pages (decorate, share style and script, canonical link); by default only the pages "
                              "of this run are made and every finished page is left as it is (also MIGRATE_DIFF_PAGES=1)")
     args = parser.parse_args()
-    if os.environ.get("MIGRATE_DIFF_PAGES", "").strip().lower() in ("1", "true", "yes", "on"):
-        args.migrate_diff_pages = True
-    if os.environ.get("DASHBOARD_NO_PUSH", "").strip().lower() in ("1", "true", "yes", "on"):
-        args.no_push = True
+    args.migrate_diff_pages = args.migrate_diff_pages or env_flag("MIGRATE_DIFF_PAGES")
+    args.no_push = args.no_push or env_flag("DASHBOARD_NO_PUSH")
+    return args
 
+
+def main():
+    args = parse_args()
     if done_file() and os.path.isfile(done_file()):
         os.remove(done_file())  # never a leftover of an earlier build
 
@@ -957,140 +402,35 @@ def main():
     print(f"Rewrote {normalize_legacy_summaries(updates)} first-snapshot summar(ies) from the old text.")
 
     os.makedirs(public_dir, exist_ok=True)
+    base = canonical_base()
+    writer = PageWriter(public_dir, base)
     configured = configured_sites(args.data_dir)
     version = asset_version(static_dir) if os.path.isdir(static_dir) else ""
-    made = make_diff_pages(public_dir, {s_["slug"]: s_["name"] for s_ in configured}, updates, canonical_base(),
-                           args.migrate_diff_pages, version)
-    print(f"Diff pages written from their patches: {made}.")
-    attach_diff_pages(updates, public_dir)
+    prepare_diff_pages(public_dir, configured, updates, base, args.migrate_diff_pages, version)
 
-    # Summaries derive from untrusted web content, so escape everything (render_markdown escapes first).
-    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=select_autoescape(["html"]))
     sites = build_site_infos(configured, updates)
-    names = {s["slug"]: s["name"] for s in sites}
+    env = make_env(templates_dir, sites, version)
+    update_old_diff_pages(public_dir, {s["slug"]: s["name"] for s in sites}, updates, base, args.migrate_diff_pages)
 
-    site_by_slug = {s_["slug"]: s_ for s_ in sites}
-    env.filters.update(
-        jst=to_jst, iso_attr=iso_attr, hostname=hostname, md=render_markdown, excerpt=excerpt, summary_by=summary_by,
-        jst_hm=lambda v: to_jst(v, with_suffix=False)[11:],
-        site_name=lambda slug: names.get(slug, slug),
-        site_tags=lambda slug: "|".join(site_by_slug.get(slug, {}).get("tags", [])),
-    )
-    mode = pwa_mode()
-    env.globals.update(pwa_enabled=(mode == "on"), pwa_mode=mode, pwa_hash=pwa_passphrase_hash() if mode == "optin" else "",
-                       initial_summary=SUMMARY_INITIAL, data_repo_url=DATA_REPO_URL, site_page=SITE_PAGE,
-                       analytics=analytics_settings())
-
-    fresh, frozen = select_diff_pages(public_dir, args.migrate_diff_pages)
-    print(f"Diff pages: {len(fresh)} to make{' (all of them: --migrate-diff-pages)' if args.migrate_diff_pages else ''}, "
-          f"{len(frozen)} finished ones left as they are.")
-    print(f"Decorated {decorate_diff_pages(public_dir, names, updates, only=fresh)} diff page(s).")
-    print(f"Moved the shared style and script out of {externalize_diff_assets(public_dir, only=fresh)} diff page(s).")
-    _canon["base"], _canon["public"] = canonical_base(), public_dir
-    print(f"Canonical address: {_canon['base'] or '(none: SITE_BASE_URL is GitHub Pages or local)'}; "
-          f"{canonicalize_diff_pages(public_dir, _canon['base'], only=fresh)} diff page(s) changed.")
-    unshared = count_unshared(frozen)
-    if unshared:
-        print(f"{unshared} finished diff page(s) still hold their own copy of the style and script (about 300 KB each, in memory "
-              f"in the container): run once with MIGRATE_DIFF_PAGES=1 to share them.")
-
-    env.globals["asset_version"] = version
-    generated = to_jst(datetime.now(timezone.utc))
-    build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
     tag_groups = configured_tag_groups(args.data_dir)
     tags = build_tag_infos(sites, tag_groups)
-    base_url = os.environ.get("SITE_BASE_URL", SITE_BASE_URL)
-    stats = {
-        "updates": len(updates),
-        "sites": len({u["site_slug"] for u in updates if u.get("site_slug")}),
-        "latest": to_jst(updates[0]["created_at"]) if updates else "-",
-    }
-    common = dict(generated=generated, sites=sites, tags=tags, total_updates=len(updates))
+    common = dict(generated=to_jst(datetime.now(timezone.utc)), sites=sites, tags=tags, total_updates=len(updates))
 
     # Stylesheets, scripts, icons ... -> assets/. static/root/ holds the files that must live at the site root.
     if os.path.isdir(static_dir):
         shutil.copytree(static_dir, os.path.join(public_dir, "assets"), dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("root"))
-        publish_root_files(os.path.join(static_dir, "root"), public_dir, build_id, env.globals["asset_version"],
-                           env.globals["pwa_mode"])
-    write(os.path.join(public_dir, "offline.html"), env.get_template("offline.html").render())
+        build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")  # makes every deployment a new service worker
+        publish_root_files(writer, os.path.join(static_dir, "root"), build_id, version, env.globals["pwa_mode"])
+    writer.page("offline.html", env.get_template("offline.html").render())
 
-    # Three views of the latest part of the timeline (GitHub-style / dashboard / minimal)
-    timeline = updates[:TIMELINE_LIMIT]
-    for page in ROOT_PAGES:
-        rendered = env.get_template(page).render(
-            updates=timeline, stats=stats, limit=TIMELINE_LIMIT, truncated=len(updates) > TIMELINE_LIMIT, **common)
-        write(os.path.join(public_dir, page), rendered)
-
-    # Overview of every monitored site, and one history page per site (also for sites without updates yet)
-    write(os.path.join(public_dir, "sites.html"), env.get_template("sites.html").render(**common))
-    site_template = env.get_template("site_detail.html")
-    for site in sites:
-        rendered = site_template.render(site=site, updates=site["updates"], **common)
-        write(os.path.join(public_dir, "sites", site["slug"], SITE_PAGE), rendered)
-
-    # Migration: site pages used to be sites/<slug>/index.html; drop the stale copies from public/.
-    sites_root = os.path.join(public_dir, "sites")
-    for entry in os.listdir(sites_root) if os.path.isdir(sites_root) else []:
-        legacy = os.path.join(sites_root, entry, "index.html")
-        if os.path.isfile(legacy):
-            os.remove(legacy)
-            print(f"Removed legacy {legacy}")
-
-    # About page (design philosophy + the one-picture explanation)
-    write(os.path.join(public_dir, "about.html"), env.get_template("about.html").render(**common))
-
-    # User guide (how to read the cards, follow, search, subscribe)
-    write(os.path.join(public_dir, "guide.html"), env.get_template("guide.html").render(**common))
-
-    # Privacy and analytics notice (the text follows which analytics IDs are configured)
-    write(os.path.join(public_dir, "privacy.html"), env.get_template("privacy.html").render(**common))
-
-    # Archive: everything older than the timeline, by week and by month
+    render_timelines(writer, env, updates, common)
+    render_site_pages(writer, env, sites, common)
+    render_static_pages(writer, env, common)
     months, weeks = group_periods(updates)
-    write(os.path.join(public_dir, "archive", "index.html"),
-          env.get_template("archive_index.html").render(months=months, weeks=weeks, **common))
-    for i, week in enumerate(weeks):
-        write(os.path.join(public_dir, "archive", f"{week['key']}.html"),
-              env.get_template("archive_week.html").render(
-                  period=week, newer=weeks[i - 1] if i > 0 else None,
-                  older=weeks[i + 1] if i + 1 < len(weeks) else None, **common))
-    for i, month in enumerate(months):
-        write(os.path.join(public_dir, "archive", f"{month['key']}.html"),
-              env.get_template("archive_month.html").render(
-                  period=month, days=group_by_day(month["updates"]), newer=months[i - 1] if i > 0 else None,
-                  older=months[i + 1] if i + 1 < len(months) else None, **common))
-
-    # Full-text search index (loaded by assets/app.js when the visitor starts searching)
-    write(os.path.join(public_dir, "search.json"), build_search_index(sites, updates, tag_groups))
-
-    # feeds/status.json: what the client apps poll (one small file instead of one feed per followed site).
-    # A rebuild without a run (--no-push) keeps the old time: "generated" tells a client that a RUN has finished.
-    status_path = os.path.join(public_dir, "feeds", "status.json")
-    generated_utc = (previous_generated(status_path) if args.no_push else None) or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    write(status_path, build_status(sites, generated_utc))
-
-    # Atom feeds: all sites, per site, per tag
-    write(os.path.join(public_dir, "feeds", "all.xml"),
-          build_atom("G醫t 更新情報（すべて）", "feeds/all.xml", "", updates[:FEED_LIMIT_ALL], names, base_url))
-    for site in sites:
-        write(os.path.join(public_dir, "feeds", f"{site['slug']}.xml"),
-              build_atom(f"G醫t {site['name']}", site["feed"], f"sites/{site['slug']}/{SITE_PAGE}",
-                         site["updates"][:FEED_LIMIT_SITE], names, base_url))
-    for tag in tags:
-        tagged = [u for u in updates if tag["name"] in site_by_slug.get(u.get("site_slug"), {}).get("tags", [])]
-        write(os.path.join(public_dir, "feeds", f"{tag['id']}.xml"),
-              build_atom(f"G醫t 分類: {tag['name']}", tag["feed"], "sites.html", tagged[:FEED_LIMIT_SITE], names, base_url))
-
-    # sitemap.xml and robots.txt: only for a site of its own (see canonical_base); otherwise remove stale copies
-    canon = _canon["base"]
-    for name in ("sitemap.xml", "robots.txt"):
-        stale = os.path.join(public_dir, name)
-        if not canon and os.path.isfile(stale):
-            os.remove(stale)
-    if canon:
-        write(os.path.join(public_dir, "sitemap.xml"), build_sitemap(canon, sites, months, weeks, updates))
-        write(os.path.join(public_dir, "robots.txt"), f"User-agent: *\nAllow: /\n\nSitemap: {canon}sitemap.xml\n")
+    render_archive(writer, env, months, weeks, common)
+    write_feeds(writer, sites, tags, updates, tag_groups, keep_generated=args.no_push)
+    write_sitemap(writer, sites, months, weeks, updates)
 
     if done_file():  # every page is written: the result can be deployed, whatever happens to the commit and push below
         with open(done_file(), "w", encoding="utf-8") as f:

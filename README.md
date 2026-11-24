@@ -18,9 +18,13 @@
 続けて 差分に対してGemini API による日本語要約を生成、差分のテキストを保存し、ブラウザで [diff2html](https://diff2html.xyz/) が左右比較に表示、
 Supabase へのメタデータ登録、Wayback Machine 保存対象URLのキュー登録（`archive_queue`）を行う。
 
+部品は別のモジュールにある: `diffcore.py`（差分が実際に何を変えたか）、`summarize.py`（AI 要約）、`links.py`（保存対象のリンク）、`db.py`（Supabase）、`datarepo.py`（パッチの置き場所）、`shell.py`（コマンドと git）、`budget.py`（実行時間の予算）。
+
 3. **Dashboard Builder (`scripts/build_dashboard.py`)**
 
 [Supabase](https://supabase.com/) から更新履歴を取得し、GitHub Pages 用の静的 HTML ダッシュボードを構築する。
+
+部品: `dashboard_text.py`（日時・Markdown・期間ごとのまとめ）、`feeds.py`（検索索引・status.json・Atom・sitemap）、`canonical.py`（ページごとに1つの住所）、`diff_pages.py`（差分ページ）。
 
 4. **GitHub Actions Workflow (`.github/workflows/stalk.yml`)**
 

@@ -162,11 +162,15 @@ def rebaseline_commits(repo: str, since: str, sites: set) -> list:
 def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     args = parse_args()
-    os.environ["STALK_BUDGET_MIN"] = str(args.max_minutes + 8)   # website_stalk reads its budget at import
-    import website_stalk as ws
+    os.environ["STALK_BUDGET_MIN"] = str(args.max_minutes + 8)   # budget.py: the run's time limit (minus its reserve)
     import provision
+    import db as ws_db
+    from datarepo import write_diff_patch
+    from diffcore import analyze_diff
+    from shell import git
+    from summarize import summarize_diff_with_gemini
 
-    db = open_db(args.db, ws)
+    db = open_db(args.db, ws_db)
     urls = {s["slug"]: s["url"] for s in provision.configured_sites(args.data_dir)}
     sites = {s.strip() for s in args.site.split(",") if s.strip()}
     excluded = {s.strip() for s in args.exclude.split(",") if s.strip()}
@@ -180,8 +184,8 @@ def main():
     for h, when, slug in rebaseline_commits(args.data_dir, args.since, sites):
         if h in known or slug in excluded:
             continue
-        patch = ws.git(["show", "--format=", "--patch", h, "--", f"sites/{slug}"], args.data_dir).stdout
-        added = ws.analyze_diff(patch).added_text()
+        patch = git(["show", "--format=", "--patch", h, "--", f"sites/{slug}"], args.data_dir).stdout
+        added = analyze_diff(patch).added_text()
         if added:
             todo.append({"hash": h, "when": when, "slug": slug, "patch": patch, "added": added})
     if args.limit:
@@ -209,7 +213,7 @@ def main():
             if time.monotonic() >= deadline:
                 print("Time budget used up; run again to continue.")
                 break
-            summary, model = ws.summarize_diff_with_gemini(t["patch"], models=[args.model], allow_fallback=False)
+            summary, model = summarize_diff_with_gemini(t["patch"], models=[args.model], allow_fallback=False)
             if model is None:           # quota, timeout, no key ...: nothing is stored, the next run does it
                 failures += 1
                 print(f"  {t['slug']} {t['hash'][:7]}: no summary ({summary[:30]}); not stored.")
@@ -227,7 +231,7 @@ def main():
                             "url": target or f"https://{t['slug']}", "commit_hash": t["hash"], "summary": summary,
                             "summary_model": model, "created_at": t["when"]})
             if args.pages:
-                ws.write_diff_patch(args.data_dir, t["slug"], t["hash"])
+                write_diff_patch(args.data_dir, t["slug"], t["hash"])
             done += 1
             print(f"  {t['when']}  {t['slug']:<28} {t['hash'][:7]}  [{model}]  {summary.splitlines()[0][:60] if summary else ''}")
             if len(pending) >= FLUSH_EVERY:

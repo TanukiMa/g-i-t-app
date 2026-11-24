@@ -2,14 +2,16 @@
 
 Everything lives inside the single g-i-t-data repository; nothing is created on GitHub.
 """
+import argparse
+import hashlib
 import os
 import re
-import sys
-import hashlib
 import subprocess
-import argparse
 from urllib.parse import urlparse
+
 import yaml
+
+from shell import run_cmd
 
 # CI runners have no git identity; commits would fail without one.
 os.environ.setdefault("GIT_AUTHOR_NAME", "g-i-t-bot")
@@ -116,17 +118,12 @@ def read_config(data_dir: str):
     return config
 
 
-def parse_stalker_yaml(data_dir: str):
+def parse_stalker_yaml(data_dir: str) -> list:
+    """The entries of `sites:` in config.yaml that are mappings (check_config.py reports everything else as an error).
+    The top level must be a mapping with `sites:`; a top-level list or a `targets:` key is not read."""
     config = read_config(data_dir)
-
-    targets = []
-    # Support various website-stalker yaml formats (list of targets or sites)
-    if isinstance(config, list):
-        targets = config
-    elif isinstance(config, dict):
-        targets = config.get("sites", config.get("targets", []))
-
-    return targets
+    sites = config.get("sites") if isinstance(config, dict) else None
+    return [t for t in sites if isinstance(t, dict)] if isinstance(sites, list) else []
 
 
 def configured_tag_groups(data_dir: str) -> list:
@@ -146,18 +143,19 @@ def configured_tag_groups(data_dir: str) -> list:
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
-def target_slug(target) -> str:
+def target_slug(target: dict) -> str:
     """Explicit `slug` or one generated from the URL ("" when the target has no URL)."""
-    url = target.get("url") if isinstance(target, dict) else str(target)
+    url = target.get("url")
     if not url:
         return ""
-    if isinstance(target, dict) and target.get("slug"):
+    if target.get("slug"):
         return str(target["slug"])
     return generate_slug(url)
 
 
 def configured_sites(data_dir: str) -> list:
-    """[{slug, name, url, fetch_url, tags, json_records, paused, archive}] for every valid target in config.yaml; `name` falls back to the host name.
+    """[{slug, name, url, fetch_url, tags, json_records, paused, archive, archive_links, report_reorder}] for every valid
+    target in config.yaml; `name` falls back to the host name.
 
     `url` is the address shown to readers: the optional `display_url` (a page that shows what an API or data file
     `url` delivers), else `url`. `fetch_url` is what is really fetched (and archived)."""
@@ -166,28 +164,20 @@ def configured_sites(data_dir: str) -> list:
         slug = target_slug(target)
         if not slug or not SLUG_RE.match(slug):
             continue
-        url = target.get("url") if isinstance(target, dict) else str(target)
-        name = (target.get("name") if isinstance(target, dict) else None) or urlparse(url).netloc.removeprefix("www.")
-        raw_tags = target.get("tags") if isinstance(target, dict) else None
+        url = target["url"]
+        name = target.get("name") or urlparse(url).netloc.removeprefix("www.")
+        raw_tags = target.get("tags")
         tags = [str(t).strip() for t in raw_tags if str(t).strip() and "|" not in str(t)] if isinstance(raw_tags, list) else []
-        shown = target.get("display_url") if isinstance(target, dict) else None
+        shown = target.get("display_url")
         shown = shown.strip() if isinstance(shown, str) and shown.strip() else url
-        records = target.get("json_records") if isinstance(target, dict) else None
+        records = target.get("json_records")
         records = records if isinstance(records, dict) and isinstance(records.get("id"), str) and records["id"] else None
-        paused = isinstance(target, dict) and target.get("paused") is True
-        archive = not (isinstance(target, dict) and target.get("archive") is False)
-        archive_links = not (isinstance(target, dict) and target.get("archive_links") is False)   # default: on
         sites.append({"slug": slug, "name": str(name), "url": shown, "fetch_url": url, "tags": tags,
-                      "json_records": records, "paused": paused, "archive": archive, "archive_links": archive_links})
+                      "json_records": records, "paused": target.get("paused") is True,
+                      "archive": target.get("archive") is not False,
+                      "archive_links": target.get("archive_links") is not False,      # default: on
+                      "report_reorder": target.get("report_reorder") is True})
     return sites
-
-
-def run_cmd(cmd, cwd=None):
-    print(f"Executing in {cwd or '.'}: {' '.join(cmd)}")
-    res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if res.returncode != 0:
-        print(f"Command failed with code {res.returncode}:\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
-    return res
 
 
 # G-I-T metadata in config.yaml; website-stalker rejects unknown keys, so these are never written out.
@@ -239,7 +229,7 @@ DEFAULT_IGNORE_RULES = [
 ]
 
 # website-stalker uses the Rust `regex` crate: no look-around and no back-references.
-_UNSUPPORTED_REGEX = re.compile(r"\(\?<?[=!]|\\[1-9]")
+UNSUPPORTED_REGEX = re.compile(r"\(\?<?[=!]|\\[1-9]")
 
 
 def rules_to_editors(rules, slug: str = "") -> list:
@@ -262,7 +252,7 @@ def rules_to_editors(rules, slug: str = "") -> list:
         except re.error as e:
             print(f"WARNING: {slug}: invalid ignore pattern {pattern!r} ({e}); skipped.")
             continue
-        if _UNSUPPORTED_REGEX.search(pattern):
+        if UNSUPPORTED_REGEX.search(pattern):
             print(f"WARNING: {slug}: ignore pattern {pattern!r} uses look-around/back-references, "
                   "which website-stalker's regex engine does not support; skipped.")
             continue
@@ -308,8 +298,7 @@ def remove_editors(selectors, slug: str = "") -> list:
 
 def ignore_editors(target, slug: str = "") -> list:
     """Editors for the site's own `ignore` rules in config.yaml."""
-    own = target.get("ignore") if isinstance(target, dict) else None
-    return rules_to_editors(_rule_list(own, slug), slug)
+    return rules_to_editors(_rule_list(target.get("ignore"), slug), slug)
 
 
 def load_global_ignore(data_dir: str) -> list:
@@ -327,9 +316,9 @@ def load_global_remove(data_dir: str) -> list:
 def all_ignore_editors(target, slug: str = "", global_rules=None, global_remove=None) -> list:
     """Built-in rules (unless `default_ignore: false`), config.yaml's global rules, the site's own `ignore`,
     then the `remove` selectors (global, then the site's own)."""
-    use_defaults = not (isinstance(target, dict) and target.get("default_ignore") is False)
+    use_defaults = target.get("default_ignore") is not False
     rules = (DEFAULT_IGNORE_RULES if use_defaults else []) + list(global_rules or [])
-    own_remove = _rule_list(target.get("remove") if isinstance(target, dict) else None, slug, "remove")
+    own_remove = _rule_list(target.get("remove"), slug, "remove")
     return (rules_to_editors(rules, slug) + ignore_editors(target, slug)
             + remove_editors(list(global_remove or []) + own_remove, slug))
 
@@ -378,8 +367,8 @@ def sync_ignore_rules(data_dir: str, slug: str, config_path: str, wanted: list, 
     return True
 
 
-def provision_site(data_dir: str, target, global_rules=None, changed=None, global_remove=None) -> str:
-    url = target.get("url") if isinstance(target, dict) else str(target)
+def provision_site(data_dir: str, target: dict, global_rules=None, changed=None, global_remove=None) -> str:
+    url = target.get("url")
     if not url:
         return ""
 
@@ -400,7 +389,7 @@ def provision_site(data_dir: str, target, global_rules=None, changed=None, globa
     print(f"Provisioning new site '{slug}' (URL: {url})...")
     os.makedirs(site_dir, exist_ok=True)
 
-    extra = {k: v for k, v in target.items() if k not in RESERVED_KEYS} if isinstance(target, dict) else {}
+    extra = {k: v for k, v in target.items() if k not in RESERVED_KEYS}
     site_cfg = {"url": url, **DEFAULT_SITE_OPTIONS, **extra}  # master config overrides defaults
     if ignores:
         site_cfg["editors"] = merge_editors(site_cfg.get("editors", []), ignores)

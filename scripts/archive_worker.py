@@ -1,4 +1,4 @@
-"""Drain archive_queue: register pending URLs with the Internet Archive, one at a time.
+"""Drain archive_queue: register pending URLs with the Internet Archive (a few at a time, paced).
 
 GitHub only fires a "*/15" schedule a few times a day, so one run must not stop after a fixed handful of
 URLs: it keeps working until nothing is due any more or the time budget is used up.
@@ -29,10 +29,7 @@ try:
 except ImportError:
     savepagenow = None
 
-try:
-    from supabase import create_client
-except ImportError:
-    create_client = None
+from db import get_supabase
 
 BATCH_SIZE = int(os.environ.get("ARCHIVE_BATCH_SIZE", "20"))        # rows fetched per round
 INTERVAL_SEC = int(os.environ.get("ARCHIVE_INTERVAL_SEC", "10"))    # at least this long between the START of two captures (all workers together)
@@ -165,6 +162,176 @@ def handle_row(supabase, row, capture, authenticate: bool = True, allow_fallback
         return "failed" if fields.get("status") == "failed" else "retry"
 
 
+class _Round:
+    """The rows of one round (one call of due_rows) and where each of them is."""
+
+    def __init__(self, rows):
+        self.covered = set()          # ids of rows that got the result of an earlier row (same URL) in this round
+        self.todo = deque(rows)       # not started yet
+        self.retry_q = deque()        # rows that must go on to the next level
+        self.deferred = []            # rows whose URL is being captured right now
+        self.flying = {}              # future -> (row, level)
+
+    def waiting(self) -> bool:
+        return bool(self.todo or self.retry_q)
+
+    def busy(self) -> bool:
+        return bool(self.todo or self.retry_q or self.deferred or self.flying)
+
+
+class Drainer:
+    """See drain(). One object per run: the levels, the pacing and the counters live here, a _Round per batch of rows."""
+
+    def __init__(self, supabase, capture, sleep, monotonic, budget_sec, interval, batch, anon_fallback, anon_interval,
+                 auth_retry_sec, n_keys, use_key, workers):
+        self.supabase, self.capture, self.sleep, self.monotonic = supabase, capture, sleep, monotonic
+        self.budget_sec, self.interval, self.batch = budget_sec, interval, batch
+        self.anon_fallback, self.anon_interval, self.auth_retry_sec = anon_fallback, anon_interval, auth_retry_sec
+        self.n_keys, self.use_key, self.workers = n_keys, use_key, max(1, int(workers))
+        self.start = monotonic()
+        # anonymous: archived without the keys; switched: times the level changed; shared: rows resolved by another row of the same URL
+        self.counts = {"done": 0, "retry": 0, "failed": 0, "rate_limited": 0, "unauthorized": 0,
+                       "anonymous": 0, "switched": 0, "shared": 0}
+        self.levels = n_keys + (1 if anon_fallback else 0)
+        self.blocked_until = [0.0] * self.levels   # monotonic time until which a level is not used (inf: rejected)
+        self.per_level = [0] * self.levels         # URLs archived per level, for the log
+        self.current = None                        # the level of the previous try
+        self.stopped = "queue empty"
+        self.last_start = None                     # when the last capture was started (pacing)
+        self.halt = False
+
+    # -- levels
+    def usable(self):
+        now_ = self.monotonic()
+        for i in range(self.levels):
+            if self.blocked_until[i] <= now_:
+                return i
+        return None
+
+    def name(self, level):
+        return "unauthenticated mode" if level >= self.n_keys else f"S3 key {level + 1}"
+
+    def stop(self, why: str):
+        self.stopped, self.halt = why, True
+
+    # -- one capture (runs in a worker thread)
+    def try_row(self, row, level, covered):
+        try:
+            return handle_row(self.supabase, row, self.capture, authenticate=level < self.n_keys,
+                              allow_fallback=level < self.levels - 1, covered=covered)
+        except Exception as e:      # handle_row catches what the capture raises; this is for what it does not expect
+            print(f"Unexpected error at {row['url']}: {describe(e)}")
+            update_row(self.supabase, row["id"], **retry_fields(row["attempts"] + 1, e))
+            return "retry"
+
+    # -- the steps of the loop
+    def collect(self, rnd):
+        """1. The results that are in."""
+        for fut in [f for f in rnd.flying if f.done()]:
+            row, level = rnd.flying.pop(fut)
+            result = fut.result()
+            if result == "auth_limited":
+                self.blocked_until[level] = self.monotonic() + self.auth_retry_sec
+                rnd.retry_q.appendleft(row)
+            elif result == "unauthorized":
+                self.counts["unauthorized"] += 1
+                self.blocked_until[level] = float("inf")
+                print(f"The {self.name(level)} is left out for the rest of this run.")
+                rnd.retry_q.appendleft(row)
+            elif result == "rate_limited":
+                self.counts["rate_limited"] += 1
+                self.stop("Internet Archive rate limit")
+            else:
+                self.counts[result] += 1
+                if result == "done":
+                    self.per_level[level] += 1
+                    if level >= self.n_keys:
+                        self.counts["anonymous"] += 1
+            if rnd.deferred:    # their URL may have been finished (and shared) now
+                rnd.todo.extendleft(reversed(rnd.deferred))
+                rnd.deferred = []
+
+    def start_next(self, rnd, pool) -> bool:
+        """2. The next row, if there is room for it. False when nothing can be done now (then wait for a result)."""
+        cap = 1 if self.current is not None and self.current >= self.n_keys else self.workers
+        if not (rnd.waiting() and len(rnd.flying) < cap):
+            return False
+        queue = rnd.retry_q if rnd.retry_q else rnd.todo
+        row = queue[0]
+        if row["id"] in rnd.covered:
+            queue.popleft()
+            self.counts["shared"] += 1
+            return True
+        if any(r["url"] == row["url"] for r, _ in rnd.flying.values()):
+            rnd.deferred.append(queue.popleft())
+            return True
+        if self.monotonic() - self.start >= self.budget_sec:
+            self.stop("time budget used up")
+            return True
+        level = self.usable()
+        if level is None:       # every level is limited or rejected
+            queue.popleft()
+            if not self.anon_fallback and all(b == float("inf") for b in self.blocked_until):
+                self.stop("credentials rejected")
+            else:
+                rate_limit_row(self.supabase, row, rnd.covered, "every level is rate limited")
+                self.counts["rate_limited"] += 1
+                self.stop("Internet Archive rate limit")
+            return True
+        if level != self.current and rnd.flying:
+            return False        # the level changes only when nothing is in flight: wait for the results
+        gap = self.anon_interval if level >= self.n_keys else self.interval
+        wait = 0 if self.last_start is None else self.last_start + gap - self.monotonic()
+        if wait > 0:
+            if rnd.flying:
+                wait_for(list(rnd.flying), timeout=min(wait, 1.0), return_when=FIRST_COMPLETED)
+            else:
+                self.sleep(wait)
+            return True
+        queue.popleft()
+        if level != self.current:
+            if self.current is not None:
+                self.counts["switched"] += 1
+                print(f"Now using the {self.name(level)}.")
+            self.current = level
+            if level < self.n_keys and self.use_key:
+                self.use_key(level)
+        self.last_start = self.monotonic()
+        rnd.flying[pool.submit(self.try_row, row, level, rnd.covered)] = (row, level)
+        return True
+
+    def idle(self, rnd):
+        """3. Nothing to start now: wait for a result."""
+        if rnd.flying:
+            wait_for(list(rnd.flying), timeout=1.0, return_when=FIRST_COMPLETED)
+        elif rnd.deferred and not rnd.waiting():
+            rnd.todo.extend(rnd.deferred)   # nothing is in flight any more: they are due again
+            rnd.deferred = []
+
+    def run(self) -> dict:
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            while not self.halt:
+                rows = due_rows(self.supabase, self.batch)
+                if not rows:
+                    break
+                print(f"{len(rows)} due URL(s) in this round"
+                      + (f" ({self.name(self.current)})." if self.current is not None and self.current >= self.n_keys else "."))
+                rnd = _Round(rows)
+                while rnd.busy() and not (self.halt and not rnd.flying):
+                    self.collect(rnd)
+                    if self.halt:
+                        # stopping: nothing new is started, but the captures in flight still report their results.
+                        # Wait for them instead of looping at full speed.
+                        if rnd.flying:
+                            wait_for(list(rnd.flying), timeout=1.0, return_when=FIRST_COMPLETED)
+                        continue
+                    if not self.start_next(rnd, pool):
+                        self.idle(rnd)
+        self.counts["stopped"] = self.stopped
+        self.counts["per_level"] = {self.name(i): self.per_level[i] for i in range(self.levels) if self.per_level[i]}
+        return self.counts
+
+
 def drain(supabase, capture, sleep=time.sleep, monotonic=time.monotonic,
           budget_sec: float = RUNTIME_MINUTES * 60, interval: float = INTERVAL_SEC, batch: int = BATCH_SIZE,
           anon_fallback: bool = ANON_FALLBACK, anon_interval: float = ANON_INTERVAL_SEC,
@@ -181,140 +348,14 @@ def drain(supabase, capture, sleep=time.sleep, monotonic=time.monotonic,
     workers. The same URL is never registered twice at once (the second row waits for the result of the first and
     gets it as a sibling). The level only changes while nothing is in flight, because the key reaches the library
     through environment variables."""
-    start = monotonic()
-    counts = {"done": 0, "retry": 0, "failed": 0, "rate_limited": 0, "unauthorized": 0,
-              "anonymous": 0, "switched": 0, "shared": 0}   # anonymous: archived without the keys; switched: times the level changed; shared: rows resolved by another row of the same URL
-    levels = n_keys + (1 if anon_fallback else 0)
-    blocked_until = [0.0] * levels      # monotonic time until which a level is not used (inf: rejected by the Internet Archive)
-    per_level = [0] * levels            # URLs archived per level, for the log
-    current = None                      # the level of the previous try
-    stopped = "queue empty"
-    last_start = None                   # when the last capture was started (pacing)
-    workers = max(1, int(workers))
-
-    def usable():
-        now_ = monotonic()
-        for i in range(levels):
-            if blocked_until[i] <= now_:
-                return i
-        return None
-
-    def name(level):
-        return "unauthenticated mode" if level >= n_keys else f"S3 key {level + 1}"
-
-    def run(row, level, covered):
-        try:
-            return handle_row(supabase, row, capture, authenticate=level < n_keys,
-                              allow_fallback=level < levels - 1, covered=covered)
-        except Exception as e:      # handle_row catches what the capture raises; this is for what it does not expect
-            print(f"Unexpected error at {row['url']}: {describe(e)}")
-            update_row(supabase, row["id"], **retry_fields(row["attempts"] + 1, e))
-            return "retry"
-
-    halt = False
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        while not halt:
-            rows = due_rows(supabase, batch)
-            if not rows:
-                break
-            print(f"{len(rows)} due URL(s) in this round" + (f" ({name(current)})." if current is not None and current >= n_keys else "."))
-            covered = set()         # ids of rows that got the result of an earlier row (same URL) in this round
-            todo = deque(rows)      # not started yet
-            retry_q = deque()       # rows that must go on to the next level
-            deferred = []           # rows whose URL is being captured right now
-            flying = {}             # future -> (row, level)
-
-            while (todo or retry_q or deferred or flying) and not (halt and not flying):
-                # 1. results that are in
-                for fut in [f for f in flying if f.done()]:
-                    row, level = flying.pop(fut)
-                    result = fut.result()
-                    if result == "auth_limited":
-                        blocked_until[level] = monotonic() + auth_retry_sec
-                        retry_q.appendleft(row)
-                    elif result == "unauthorized":
-                        counts["unauthorized"] += 1
-                        blocked_until[level] = float("inf")
-                        print(f"The {name(level)} is left out for the rest of this run.")
-                        retry_q.appendleft(row)
-                    elif result == "rate_limited":
-                        counts["rate_limited"] += 1
-                        stopped, halt = "Internet Archive rate limit", True
-                    else:
-                        counts[result] += 1
-                        if result == "done":
-                            per_level[level] += 1
-                            if level >= n_keys:
-                                counts["anonymous"] += 1
-                    if deferred:    # their URL may have been finished (and shared) now
-                        todo.extendleft(reversed(deferred))
-                        deferred = []
-                if halt:
-                    continue
-
-                # 2. the next row, if there is room for it
-                cap = 1 if current is not None and current >= n_keys else workers
-                if (todo or retry_q) and len(flying) < cap:
-                    queue = retry_q if retry_q else todo
-                    row = queue[0]
-                    if row["id"] in covered:
-                        queue.popleft()
-                        counts["shared"] += 1
-                        continue
-                    if any(r["url"] == row["url"] for r, _ in flying.values()):
-                        deferred.append(queue.popleft())
-                        continue
-                    if monotonic() - start >= budget_sec:
-                        stopped, halt = "time budget used up", True
-                        continue
-                    level = usable()
-                    if level is None:       # every level is limited or rejected
-                        queue.popleft()
-                        if not anon_fallback and all(b == float("inf") for b in blocked_until):
-                            stopped, halt = "credentials rejected", True
-                        else:
-                            rate_limit_row(supabase, row, covered, "every level is rate limited")
-                            counts["rate_limited"] += 1
-                            stopped, halt = "Internet Archive rate limit", True
-                        continue
-                    if level != current and flying:
-                        pass                # the level changes only when nothing is in flight: wait for the results below
-                    else:
-                        gap = anon_interval if level >= n_keys else interval
-                        wait = 0 if last_start is None else last_start + gap - monotonic()
-                        if wait > 0:
-                            if flying:
-                                wait_for(list(flying), timeout=min(wait, 1.0), return_when=FIRST_COMPLETED)
-                            else:
-                                sleep(wait)
-                            continue
-                        queue.popleft()
-                        if level != current:
-                            if current is not None:
-                                counts["switched"] += 1
-                                print(f"Now using the {name(level)}.")
-                            current = level
-                            if level < n_keys and use_key:
-                                use_key(level)
-                        last_start = monotonic()
-                        flying[pool.submit(run, row, level, covered)] = (row, level)
-                        continue
-                # 3. nothing to start now: wait for a result
-                if flying:
-                    wait_for(list(flying), timeout=1.0, return_when=FIRST_COMPLETED)
-                elif deferred and not (todo or retry_q):
-                    todo.extend(deferred)   # nothing is in flight any more: they are due again
-                    deferred = []
-    counts["stopped"] = stopped
-    counts["per_level"] = {name(i): per_level[i] for i in range(levels) if per_level[i]}
-    return counts
+    return Drainer(supabase, capture, sleep, monotonic, budget_sec, interval, batch, anon_fallback, anon_interval,
+                   auth_retry_sec, n_keys, use_key, workers).run()
 
 
 def main():
-    supa_url = os.environ.get("SUPABASE_URL")
-    supa_key = os.environ.get("SUPABASE_KEY")
     keys = load_keys()
-    if not (savepagenow and create_client and supa_url and supa_key and keys):
+    supabase = get_supabase() if savepagenow and keys else None
+    if not supabase:
         print("Missing modules or credentials (SUPABASE_*, IA_*).")
         sys.exit(1)
 
@@ -323,7 +364,6 @@ def main():
         os.environ["SAVEPAGENOW_ACCESS_KEY"], os.environ["SAVEPAGENOW_SECRET_KEY"] = keys[index]
 
     use_key(0)
-    supabase = create_client(supa_url, supa_key)
     print(f"{len(keys)} S3 key(s). Working for up to {RUNTIME_MINUTES:g} min ({WORKERS} at a time, one started every {INTERVAL_SEC}s, {BATCH_SIZE} per round; "
           f"a rate-limited key is tried again after {AUTH_RETRY_MINUTES:g} min; "
           + (f"after the last key: unauthenticated, every {ANON_INTERVAL_SEC}s)." if ANON_FALLBACK else "after the last key the run stops)."))

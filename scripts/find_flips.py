@@ -18,22 +18,16 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from diffcore import net_diff  # noqa: E402
+from shell import git_out as git  # noqa: E402
 
 COUNTED = re.compile(r"^(Update|Reorder) (\S+)")
 RAW = re.compile(r"^:\d+ \d+ ([0-9a-f]{40}) ([0-9a-f]{40}) \w+\t(.+)$")
 
-
-def git(repo, args):
-    res = subprocess.run(["git", "-c", "core.quotepath=false", *args], cwd=repo, capture_output=True, text=True,
-                         encoding="utf-8", errors="replace")
-    if res.returncode != 0:
-        sys.exit(f"git {' '.join(args[:2])} failed: {res.stderr.strip()}")
-    return res.stdout
 
 
 def history(repo: str, days: int):
@@ -85,9 +79,8 @@ def find_flips(commits):
 
 def sample_lines(repo: str, slug: str, commit: str, limit: int = 6) -> list:
     """The real added/removed lines of the latest returning commit (net_diff: moved lines are left out)."""
-    import website_stalk as ws
     patch = git(repo, ["show", "--format=", "--patch", commit, "--", f"sites/{slug}"])
-    net = ws.net_diff(patch)
+    net = net_diff(patch)
     lines = [l for l in (net or "").splitlines() if l and not l.startswith("===")]
     if not lines:   # nothing but moved lines (a swap of two blocks): show a few of them
         moved = [l[0] + l[1:].strip() for l in patch.splitlines()

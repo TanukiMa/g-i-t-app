@@ -1,4 +1,11 @@
-"""Constants shared by website_stalk.py and build_dashboard.py."""
+"""Constants shared by website_stalk.py and build_dashboard.py (and the tools), plus env_flag()."""
+import os
+
+
+def env_flag(name: str) -> bool:
+    """True when the environment variable is 1 / true / yes / on (any case); unset or anything else is False."""
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
 
 # Stored in updates.summary when no summary could be produced. SUMMARY_FAILED rows are retried
 # by backfill_summaries(); SUMMARY_UNAVAILABLE marks rows whose diff can no longer be read.
@@ -14,6 +21,11 @@ DATA_REPO_URL = "https://github.com/TanukiMa/g-i-t-data"
 
 # File name of a site's history page: public/sites/<slug>/history.html (index.html is reserved for the timelines).
 SITE_PAGE = "history.html"
+
+# The record of a change is public/sites/<slug>/diff_<hash7>.patch.txt (raw `git show`); diff_<hash7>.html is its view,
+# marked with DIFF_MARK_V3 in its first bytes.
+PATCH_SUFFIX = ".patch.txt"
+DIFF_MARK_V3 = "<!--git-diff-v3-->"
 
 # Absolute base URL of the published dashboard (needed for Atom feeds). Override with SITE_BASE_URL.
 SITE_BASE_URL = "https://giiit.goudge.org/"
