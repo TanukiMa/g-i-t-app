@@ -260,7 +260,8 @@ def prepare_diff_pages(public_dir: str, configured: list, updates: list, base, m
 
 
 FORWARD_PAGE = ('<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="robots" content="noindex">'
-                '<meta http-equiv="refresh" content="0; url=./"><title>G醫t</title></head>'
+                '<script>location.replace("./" + location.search + location.hash);</script>'
+                '<noscript><meta http-equiv="refresh" content="0; url=./"></noscript><title>G醫t</title></head>'
                 '<body><p><a href="./">G醫t のタイムラインへ</a></p></body></html>\n')
 
 
