@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from provision import SLUG_RE, _UNSUPPORTED_REGEX, target_slug  # noqa: E402
+from provision import SLUG_RE, UNSUPPORTED_REGEX, target_slug  # noqa: E402
 
 TOP_KEYS = {"sites", "ignore", "remove", "tag_groups"}
 SITE_KEYS = {"url", "name", "slug", "tags", "ignore", "remove", "default_ignore", "report_reorder", "display_url", "json_records", "paused", "archive", "archive_links"}
@@ -63,10 +63,7 @@ def check_text(text: str):
     if config is None:
         err(0, "the file is empty")
         return errors, warnings, 0
-    if isinstance(config, list):
-        warn(0, "the top level is a list; use `sites:` as the top-level key")
-        sites, top, sites_node = config, {}, root
-    elif isinstance(config, dict):
+    if isinstance(config, dict):
         top, sites, sites_node = config, config.get("sites"), None
         if isinstance(root, yaml.MappingNode):
             for k, v in root.value:
@@ -215,7 +212,7 @@ def _check_rules(rules, line, label, err):
         except re.error as e:
             err(line, f"{label}: invalid regex {pattern!r} ({e})")
             continue
-        if _UNSUPPORTED_REGEX.search(pattern):
+        if UNSUPPORTED_REGEX.search(pattern):
             err(line, f"{label}: {pattern!r} uses look-around or a back-reference, which website-stalker's regex engine does not support")
 
 

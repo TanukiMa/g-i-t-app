@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{{ page_title }}</title>
-<link rel="stylesheet" href="{{ root }}assets/{{ style|default('github') }}.css?v={{ asset_version }}" />
+<link rel="stylesheet" href="{{ root }}assets/github.css?v={{ asset_version }}" />
 <link rel="stylesheet" href="{{ root }}assets/common.css?v={{ asset_version }}" />
 <link rel="alternate" type="application/atom+xml" title="G醫t 更新情報（すべて）" href="{{ root }}feeds/all.xml" />
 {% if pwa_enabled %}<link rel="manifest" href="{{ root }}manifest.webmanifest" />
@@ -15,13 +15,13 @@
 <meta name="apple-mobile-web-app-title" content="G醫t" />
 {% endif %}{% block head_extra %}{% endblock %}
 <script src="{{ root }}assets/app.js?v={{ asset_version }}" defer data-root="{{ root }}"></script>
-{% if pwa_mode in ('on', 'optin') %}<script src="{{ root }}assets/pwa.js?v={{ asset_version }}" defer data-root="{{ root }}" data-mode="{{ pwa_mode }}"{% if pwa_mode == 'optin' %} data-hash="{{ pwa_hash }}"{% endif %}></script>
+{% if pwa_enabled %}<script src="{{ root }}assets/pwa.js?v={{ asset_version }}" defer data-root="{{ root }}"></script>
 {% endif %}{% if analytics.enabled %}<script src="{{ root }}assets/analytics.js?v={{ asset_version }}" defer data-ga="{{ analytics.ga_id }}" data-cf="{{ analytics.cf_token }}"></script>{% endif %}
 </head>
-<body class="style-{{ style|default('github') }}">
+<body>
 <main>
   {% block content %}{% endblock %}
 </main>
-<p class="legal"><a href="{{ root }}privacy.html">プライバシーとアクセス解析について</a>{% if pwa_mode in ('on', 'optin') %}<span data-install hidden> ・ <button type="button" class="install-btn" data-install-button>📲 アプリとしてインストール</button></span>{% endif %}</p>
+<p class="legal"><a href="{{ root }}privacy.html">プライバシーとアクセス解析について</a>{% if pwa_enabled %}<span data-install hidden> ・ <button type="button" class="install-btn" data-install-button>📲 アプリとしてインストール</button></span>{% endif %}</p>
 </body>
 </html>

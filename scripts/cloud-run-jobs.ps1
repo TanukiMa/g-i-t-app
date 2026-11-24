@@ -36,7 +36,6 @@ param(
     [string[]]$DeployTargets = @('github-pages-redirect', 'firebase'),
     [string]$StalkRuns = '07:30,12:30,16:30',
     [string]$PwaEnabled = '0',
-    [string]$PwaPassphraseHash = '',
     [string]$GaMeasurementId = '',      # Google Analytics 4 (G-XXXXXXXXXX); empty = the value in .env, or off
     [string]$CfBeaconToken = '',        # Cloudflare Web Analytics; empty = the value in .env, or off
     [string]$RawSites = '',             # job raw: comma separated slugs (empty = every site)
@@ -87,7 +86,6 @@ function New-EnvArg([bool]$withFrom, [string[]]$more = @()) {
         "PWA_ENABLED=$PwaEnabled",
         "SUPABASE_URL=$supabaseUrl"
     )
-    if ($PwaPassphraseHash) { $pairs += "PWA_PASSPHRASE_HASH=$PwaPassphraseHash" }
     if ($GaMeasurementId) { $pairs += "GA_MEASUREMENT_ID=$GaMeasurementId" }
     if ($CfBeaconToken) { $pairs += "CF_BEACON_TOKEN=$CfBeaconToken" }
     if ($withFrom) { $pairs += "WEBSITE_STALKER_FROM=$(Read-EnvValue 'WEBSITE_STALKER_FROM')" }

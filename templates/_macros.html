@@ -1,10 +1,9 @@
 {#- Shared building blocks for every page. `root` is the relative path back to the site root ("", "../", "../../"). -#}
 
+{#- The link to the timeline at the top of every page (marked as the current page on the timeline itself). -#}
 {% macro nav(current, root='') -%}
-<nav class="style-switch" aria-label="表示スタイル切り替え">
-    <a href="{{ root or './' }}"{% if current == 'index' %} aria-current="page"{% endif %}>GitHub風</a>
-    <a href="{{ root }}dashboard.html"{% if current == 'dashboard' %} aria-current="page"{% endif %}>dashboard</a>
-    <a href="{{ root }}minimal.html"{% if current == 'minimal' %} aria-current="page"{% endif %}>minimal</a>
+<nav class="top-nav" aria-label="サイト内の移動">
+    <a href="{{ root or './' }}"{% if current == 'index' %} aria-current="page"{% endif %}>タイムライン</a>
   </nav>
 {%- endmacro %}
 

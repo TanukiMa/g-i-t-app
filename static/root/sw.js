@@ -15,8 +15,7 @@ const WAIT_FOR_NETWORK_MS = 4000;             // with a copy available, fall bac
 const ASSET_VERSION = "__ASSET_VERSION__";   // the pages ask for assets/xxx?v=<this>: same URL, same cache entry
 const SHELL = [
   "offline.html",
-  "assets/github.css?v=" + ASSET_VERSION, "assets/dashboard.css?v=" + ASSET_VERSION,
-  "assets/minimal.css?v=" + ASSET_VERSION, "assets/common.css?v=" + ASSET_VERSION,
+  "assets/github.css?v=" + ASSET_VERSION, "assets/common.css?v=" + ASSET_VERSION,
   "assets/app.js?v=" + ASSET_VERSION, "assets/pwa.js?v=" + ASSET_VERSION,
   "assets/icons/icon-192.png",
 ];

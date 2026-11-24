@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import nav, footer, status %}
-{% set root = '' %}{% set style = 'github' %}{% set page_title = 'プライバシーとアクセス解析 - G醫t' %}
+{% set root = '' %}{% set page_title = 'プライバシーとアクセス解析 - G醫t' %}
 {% block content %}
   {{ nav('', root) }}
   <header>
@@ -60,7 +60,6 @@
     <ul>
       <li>フォロー中のサイトの一覧と、「すべて／フォロー中のみ」の選択</li>
       <li>★で保存した検索語と、それぞれの「最後に見た更新」の日時</li>
-      <li>アプリ（PWA）を有効にしたブラウザの印（合言葉を知っている人が、自分のブラウザで有効にした場合だけ）</li>
       {% if analytics.enabled %}<li>アクセス解析を停止・再開した選択</li>{% endif %}
       <li>オフラインで読むための、最近開いたページの控え（ブラウザのキャッシュ領域。最大 60 ページ。共有リンクの <code>?follow=…</code> の部分は保存しません）</li>
     </ul>

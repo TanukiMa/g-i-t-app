@@ -17,7 +17,6 @@ import argparse
 import concurrent.futures
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -25,6 +24,8 @@ from datetime import datetime, timedelta, timezone
 import yaml
 
 import provision
+from common import env_flag
+from shell import git_silent
 
 WORKERS = int(os.environ.get("RAW_WORKERS", "4"))
 BUDGET_MIN = float(os.environ.get("RAW_BUDGET_MIN", "40"))
@@ -36,7 +37,7 @@ HEADERS = provision.DEFAULT_SITE_OPTIONS["headers"]
 
 
 def git(args, cwd):
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return git_silent(cwd, args)
 
 
 def raw_config(target) -> dict:
@@ -116,7 +117,7 @@ def main():
     args = parser.parse_args()
 
     # A switch, so that a scheduled job costs nothing while the experiment is not running (RAW_EXPERIMENT=1 turns it on).
-    if os.environ.get("RAW_EXPERIMENT", "").strip().lower() not in ("1", "true", "yes", "on"):
+    if not env_flag("RAW_EXPERIMENT"):
         print("RAW_EXPERIMENT is not set to 1: the raw arm is off, nothing to do.")
         return
     if not os.environ.get("WEBSITE_STALKER_FROM"):

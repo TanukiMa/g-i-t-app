@@ -39,7 +39,10 @@ from datetime import datetime
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from find_micro_changes import first_snapshot, git, visible  # noqa: E402
+from datarepo import is_first_snapshot  # noqa: E402
+from db import get_supabase  # noqa: E402
+from diffcore import analyze_diff, visible  # noqa: E402
+from shell import git_out as git  # noqa: E402
 
 
 def load_rules(data_dir: str, slug: str, with_defaults: bool = True):
@@ -105,14 +108,13 @@ def remaining(analysis, limit: int = 3) -> list:
 
 def judge(data_dir: str, commit: str, slug: str, rules):
     """(verdict, chars before, chars after, remaining lines) of one Update commit."""
-    import website_stalk as ws
     files = changed_files(data_dir, commit, slug)
-    before = ws.analyze_diff(git(data_dir, ["show", "--format=", "--patch", "-U0", commit, "--", f"sites/{slug}"]))
+    before = analyze_diff(git(data_dir, ["show", "--format=", "--patch", "-U0", commit, "--", f"sites/{slug}"]))
     before_text = before.text() or ""
     patch = replay_patch(data_dir, commit, files, rules)
     if not patch:
         return "noise", len(before_text), 0, []
-    after = ws.analyze_diff(patch)
+    after = analyze_diff(patch)
     after_text = after.text() or ""
     if after.moved_only or (after.has_text_hunks and not after_text.strip()):
         return "noise", len(before_text), 0, []
@@ -146,8 +148,7 @@ def main():
 
     supabase = None
     if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY"):
-        import website_stalk as ws
-        supabase = ws.get_supabase()
+        supabase = get_supabase()
     if args.apply and not supabase:
         sys.exit("--apply needs SUPABASE_URL / SUPABASE_KEY.")
 
@@ -156,7 +157,7 @@ def main():
         print(f"\n== {slug}: {len(rules)} regex rule(s) replayed" + (f", {len(skipped)} skipped: {'; '.join(skipped)}" if skipped else ""))
         noise, counts = [], {"noise": 0, "reduced": 0, "kept": 0, "first": 0}
         for commit, date in site_updates(args.data_dir, slug, args.since):
-            if first_snapshot(args.data_dir, commit, slug):
+            if is_first_snapshot(args.data_dir, commit, slug):
                 counts["first"] += 1
                 continue
             verdict, before, after, left = judge(args.data_dir, commit, slug, rules)

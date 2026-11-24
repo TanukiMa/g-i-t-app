@@ -1,4 +1,5 @@
-/* G醫t: the installable app (PWA) is switched off (PWA_ENABLED=0). This file is published as /sw.js in its place.
+/* G醫t: the installable app (PWA) is switched off (PWA_ENABLED=0). This file is published as /sw.js in its place,
+ * and always as /sw-app.js (the worker of the former opt-in mode, which some browsers may still have registered).
  *
  * Browsers that installed the app earlier still have the old service worker. They look for a new /sw.js whenever they open a
  * page of the site, find this one, and it removes everything the old worker kept: the cached copies, and itself.

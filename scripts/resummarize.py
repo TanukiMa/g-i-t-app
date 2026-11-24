@@ -80,32 +80,35 @@ def main():
     args = parse_args()
     if args.commit:
         args.force = True   # naming a commit is an explicit request: rewrite it even if it already has a model
-    # website_stalk reads its run budget at import: give it this run's own (its last 8 minutes are a reserve there).
+    # The run budget of budget.py: give it this run's own (its last 8 minutes are a reserve there).
     os.environ["STALK_BUDGET_MIN"] = str(args.max_minutes + 8)
-    import website_stalk as ws
-    from common import LEGACY_SUMMARY_INITIAL, SUMMARY_INITIAL
+    import summarize as ws_ai
+    from common import SUMMARY_FAILED, SUMMARY_INITIAL
+    from db import get_supabase, write_summary
+    from diffcore import net_diff
+    from shell import git
 
-    supabase = ws.get_supabase()
+    supabase = get_supabase()
     if not supabase:
         sys.exit("SUPABASE_URL / SUPABASE_KEY are not set.")
     try:
-        rows = fetch_rows(supabase, args, {SUMMARY_INITIAL, *LEGACY_SUMMARY_INITIAL})
+        rows = fetch_rows(supabase, args, {SUMMARY_INITIAL})
     except Exception as e:
         sys.exit(f"Could not read updates ({e}). Has sql/add-summary-model.sql been run?")
     models = csv_list(args.model) or None
     print(f"{len(rows)} row(s) selected (limit {args.limit or 'none'}, "
           f"{'all rows' if args.force else 'rows without summary_model'}, "
-          f"models: {', '.join(models) if models else ', '.join(ws.GEMINI_MODELS) + ' (+ fallback provider if configured)'}).")
+          f"models: {', '.join(models) if models else ', '.join(ws_ai.GEMINI_MODELS) + ' (+ fallback provider if configured)'}).")
 
     def patch_of(row):
-        res = ws.git(["show", "--format=", "--patch", row["commit_hash"], "--", f"sites/{row['site_slug']}"], args.data_dir)
+        res = git(["show", "--format=", "--patch", row["commit_hash"], "--", f"sites/{row['site_slug']}"], args.data_dir)
         return res.stdout if res.returncode == 0 and res.stdout.strip() else ""
 
     if args.dry_run:
         by_rule = by_ai = missing = 0
         for r in rows:
             patch = patch_of(r)
-            net = ws.net_diff(patch) if patch else None
+            net = net_diff(patch) if patch else None
             if not patch:
                 missing += 1
             elif net == "":
@@ -130,10 +133,10 @@ def main():
             print(f"  {row['id']} {row['site_slug']} {row['commit_hash'][:7]}: commit not found, kept.")
             return row, None
         try:
-            return row, ws.summarize_diff_with_gemini(patch, models=models, allow_fallback=models is None)
+            return row, ws_ai.summarize_diff_with_gemini(patch, models=models, allow_fallback=models is None)
         except Exception as e:
             print(f"  {row['id']} {row['site_slug']}: {e}")
-            return row, (ws.SUMMARY_FAILED, None)
+            return row, (SUMMARY_FAILED, None)
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         for fut in as_completed([pool.submit(work, r) for r in rows]):
@@ -150,7 +153,7 @@ def main():
                         stop.set()
                     continue
                 state["fail_streak"] = 0
-            ws.write_summary(supabase, row["id"], summary, model)
+            write_summary(supabase, row["id"], summary, model)
             with lock:
                 state["done"] += 1
             print(f"  {row['id']:>6} {row['site_slug']:<28} {row['commit_hash'][:7]}  [{model}]  "

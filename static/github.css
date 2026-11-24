@@ -37,12 +37,12 @@
     margin: 0 auto;
     padding-inline: 16px;
   }
-  nav.style-switch {
+  nav.top-nav {
     display: flex;
     gap: 0.4rem;
     margin-bottom: 1.5rem;
   }
-  nav.style-switch a {
+  nav.top-nav a {
     font-size: 0.8rem;
     padding: 0.3em 0.8em;
     border-radius: 2em;
@@ -50,8 +50,8 @@
     color: var(--muted);
     text-decoration: none;
   }
-  nav.style-switch a:hover { color: var(--fg); border-color: var(--fg); }
-  nav.style-switch a[aria-current="page"] {
+  nav.top-nav a:hover { color: var(--fg); border-color: var(--fg); }
+  nav.top-nav a[aria-current="page"] {
     background: var(--fg);
     color: var(--bg);
     border-color: var(--fg);

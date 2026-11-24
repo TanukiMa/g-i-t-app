@@ -19,22 +19,18 @@ Then: git add public; git commit; git push (app first), and run the stalk job on
 """
 import argparse
 import os
-import subprocess
 import sys
 
-PATCH_SUFFIX = ".patch.txt"
-DIFF_MARK_V3 = "<!--git-diff-v3-->"
-
-
-def git(data_dir: str, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=data_dir, capture_output=True)
-
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from common import DIFF_MARK_V3  # noqa: E402
+from datarepo import commit_patch, is_first_snapshot, patch_path  # noqa: E402
+from shell import git_silent  # noqa: E402
 
 def commit_slug(data_dir: str, commit: str):
     """(full hash, slug) of the commit, the slug being the one site directory (sites/<slug>/) it changes; or (None, reason).
     Any kind of commit that was reported can have a page: `Update <slug>`, and `Re-baseline` / `Reorder` ones that
     recover_rebaselined.py recovered."""
-    res = git(data_dir, "show", "--format=%H", "--name-only", commit)
+    res = git_silent(data_dir, ["show", "--format=%H", "--name-only", commit], binary=True)
     if res.returncode != 0:
         return None, "commit not found"
     lines = res.stdout.decode("utf-8", "replace").splitlines()
@@ -45,25 +41,18 @@ def commit_slug(data_dir: str, commit: str):
     return full, slugs.pop()
 
 
-def is_first_snapshot(data_dir: str, full: str, slug: str) -> bool:
-    """A commit that only adds files is the first snapshot of a site: it has no diff page."""
-    res = git(data_dir, "show", "--format=", "--name-status", full, "--", f"sites/{slug}")
-    lines = [l for l in res.stdout.decode("utf-8", "replace").splitlines() if l.strip()]
-    return bool(lines) and all(l.startswith("A") for l in lines)
-
-
 def write_patch(data_dir: str, commit: str, slug: str, dry_run: bool) -> str:
     """'written' / 'exists' / 'empty'."""
-    path = os.path.join(data_dir, "public", "sites", slug, f"diff_{commit[:7]}{PATCH_SUFFIX}")
+    path = patch_path(data_dir, slug, commit)
     if os.path.isfile(path):
         return "exists"
-    res = git(data_dir, "show", "--format=", "--patch", commit, "--", f"sites/{slug}")
-    if res.returncode != 0 or not res.stdout.strip():
+    patch = commit_patch(commit, data_dir, f"sites/{slug}")
+    if patch is None:
         return "empty"
     if not dry_run:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
-            f.write(res.stdout)
+            f.write(patch)
     return "written"
 
 

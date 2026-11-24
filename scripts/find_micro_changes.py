@@ -19,34 +19,23 @@ listed too: a site where most updates are micro is the one to fix first (`rebuil
 ones). Needs the history of g-i-t-data (a partial clone is enough: every commit loads its blobs).
 """
 import argparse
-import html
 import json
 import os
 import re
-import subprocess
 import sys
 import unicodedata
 from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from datarepo import is_first_snapshot  # noqa: E402
+from diffcore import analyze_diff, visible  # noqa: E402
+from shell import git_out as git  # noqa: E402
 
 UPDATE = re.compile(r"^Update (\S+)$")
-TAG = re.compile(r"<[^>]*>")
 BADGE_WORDS = {"new", "新着", "新", "更新", "up", "update", "最新", "注目", "重要", "pickup"}
 MAX_LINES = 12
 
 
-def git(repo, args, check=True):
-    res = subprocess.run(["git", "-c", "core.quotepath=false", *args], cwd=repo, capture_output=True, text=True,
-                         encoding="utf-8", errors="replace")
-    if res.returncode != 0 and check:
-        sys.exit(f"git {' '.join(args[:2])} failed: {res.stderr.strip()}")
-    return res.stdout
-
-
-def visible(text: str) -> str:
-    """The text a reader would see in one stored line: tags removed, entities decoded, white space collapsed."""
-    return re.sub(r"\s+", " ", html.unescape(TAG.sub(" ", text))).strip()
 
 
 def signature(sign_texts) -> str:
@@ -95,25 +84,18 @@ def updates(repo: str, days: int, site: str):
     return rows
 
 
-def first_snapshot(repo: str, commit: str, slug: str) -> bool:
-    """The first fetch of a site adds every file (no parent version): it is never a change to judge."""
-    out = git(repo, ["diff-tree", "--no-commit-id", "--name-status", "-r", "--no-renames", commit, "--", f"sites/{slug}"])
-    states = [l.split("\t", 1)[0] for l in out.splitlines() if l and not l.endswith("website-stalker.yaml")]
-    return bool(states) and all(s == "A" for s in states)
-
 
 def scan(repo: str, days: int, site: str, max_chars: int):
-    import website_stalk as ws
     per_site = defaultdict(lambda: {"updates": 0, "micro": 0})
     groups = defaultdict(lambda: {"kind": "", "commits": [], "sites": set(), "sample": None})
     for commit, date, slug in updates(repo, days, site):
-        if first_snapshot(repo, commit, slug):
+        if is_first_snapshot(repo, commit, slug):
             continue
         patch = git(repo, ["show", "--format=", "--patch", "-U0", commit, "--", f"sites/{slug}"])
         if not patch.strip():
             continue
         per_site[slug]["updates"] += 1
-        micro = micro_change(ws.analyze_diff(patch), max_chars)
+        micro = micro_change(analyze_diff(patch), max_chars)
         if micro is None:
             continue
         per_site[slug]["micro"] += 1
