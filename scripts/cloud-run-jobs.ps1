@@ -116,6 +116,18 @@ $definitions = @{
 
 foreach ($key in $Jobs) {
     $d = $definitions[$key]
+    if ($key -eq 'archive') {   # more Internet Archive keys (IA_ACCESS_KEY_2 / IA_SECRET_KEY_2 ... _9): only those that exist in Secret Manager
+        $extra = @()
+        foreach ($n in 2..9) {
+            $have = $true
+            foreach ($base in 'IA_ACCESS_KEY', 'IA_SECRET_KEY') {
+                gcloud secrets describe "${base}_$n" --project $Project --format 'value(name)' 2>$null | Out-Null
+                if ($LASTEXITCODE -ne 0) { $have = $false }
+            }
+            if ($have) { $extra += "IA_ACCESS_KEY_$n=IA_ACCESS_KEY_${n}:latest,IA_SECRET_KEY_$n=IA_SECRET_KEY_${n}:latest" }
+        }
+        if ($extra) { $d.Secrets = $d.Secrets + ',' + ($extra -join ','); Write-Host "[archive] extra IA keys: $($extra.Count)" }
+    }
     gcloud run jobs describe $d.Name --region $Region --project $Project --format 'value(name)' 2>$null | Out-Null
     $exists = ($LASTEXITCODE -eq 0)
     $verb = if ($exists) { 'update' } else { 'create' }
