@@ -64,7 +64,16 @@
       var any = $$("[data-site]", list).some(function (el) { return !el.hidden; });
       list.hidden = !any;
       var heading = list.previousElementSibling;
-      if (heading && heading.classList.contains("day")) heading.hidden = !any;
+      if (heading && heading.classList.contains("day")) {
+        heading.hidden = !any;
+        // the day's count follows the filter (same wording as templates/archive_month.html)
+        var count = $(".day-count", heading);
+        if (count) {
+          var rows = $$("[data-site]", list).filter(function (el) { return !el.hidden; });
+          var first = rows.filter(function (el) { return el.classList.contains("row--initial"); }).length;
+          count.textContent = (rows.length - first) + "件" + (first ? "（ほか初回取得 " + first + "件）" : "");
+        }
+      }
     });
 
     $$("[data-follow]").forEach(function (btn) {

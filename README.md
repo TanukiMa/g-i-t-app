@@ -24,7 +24,7 @@ Supabase へのメタデータ登録、Wayback Machine 保存対象URLのキュ�
 
 [Supabase](https://supabase.com/) から更新履歴を取得し、GitHub Pages 用の静的 HTML ダッシュボードを構築する。
 
-部品: `dashboard_text.py`（日時・Markdown・期間ごとのまとめ）、`feeds.py`（検索索引・status.json・Atom・sitemap）、`canonical.py`（ページごとに1つの住所）、`diff_pages.py`（差分ページ）。
+部品: `dashboard_text.py`（日時・Markdown・期間ごとのまとめ）、`feeds.py`（検索索引・status.json・Atom・sitemap）、`canonical.py`（ページごとに1つの住所）、`diff_pages.py`（差分ページ）、`stats.py`（統計ページ `stats.html` の集計と SVG グラフ）。
 
 4. **GitHub Actions Workflow (`.github/workflows/stalk.yml`)**
 

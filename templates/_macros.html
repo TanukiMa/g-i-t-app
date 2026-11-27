@@ -9,7 +9,7 @@
 
 {#- "生成: …" line with links to the site overview, the archive and the combined Atom feed. -#}
 {% macro status(generated, sites, root='') -%}
-<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">サイト一覧（{{ sites|length }}）</a> ・ <a href="{{ root }}archive/">アーカイブ</a> ・ <a href="{{ root }}feeds/all.xml" title="Atom フィード（すべて）">📡 Atom</a> ・ <a href="{{ root }}guide.html">使い方</a> ・ <a href="{{ root }}about.html">G醫tについて</a></p>
+<p id="status">生成: {{ generated }} ・ <a href="{{ root }}sites.html">サイト一覧（{{ sites|length }}）</a> ・ <a href="{{ root }}archive/">アーカイブ</a> ・ <a href="{{ root }}stats.html">統計</a> ・ <a href="{{ root }}feeds/all.xml" title="Atom フィード（すべて）">📡 Atom</a> ・ <a href="{{ root }}guide.html">使い方</a> ・ <a href="{{ root }}about.html">G醫tについて</a></p>
 {%- endmacro %}
 
 {#- Star button; hidden until app.js is running (it needs JavaScript). -#}
@@ -73,7 +73,7 @@
 
 {#- One compact line for month pages: time, site, one-line excerpt, history and diff links. -#}
 {% macro entry_row(item, root='') -%}
-<li class="row" data-site="{{ item.site_slug }}" data-tags="{{ item.site_slug|site_tags }}">
+<li class="row{% if item.summary == initial_summary %} row--initial{% endif %}" data-site="{{ item.site_slug }}" data-tags="{{ item.site_slug|site_tags }}">
         <time>{{ item.created_at|jst_hm }}</time>
         <a class="site-name" href="{{ root }}sites/{{ item.site_slug }}/{{ site_page }}">{{ item.site_slug|site_name }}</a>
         <span class="row-text">{% if item.summary == initial_summary %}初回取得{% else %}{{ item.summary|excerpt or '更新を検知' }}{% endif %}</span>

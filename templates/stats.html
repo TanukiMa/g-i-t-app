@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_macros.html" import nav, footer, status %}
+{% set root = '' %}{% set page_title = '統計 - G醫t' %}
+{% macro values(rows, unit=' 件') -%}
+<ul class="stat-list">
+      {% for label, value in rows %}<li><span>{{ label }}</span> <span class="n">{{ '{:,}'.format(value) if value is number else value }}{{ unit }}</span></li>
+      {% endfor %}</ul>
+{%- endmacro %}
+{% block content %}
+  {{ nav('', root) }}
+  <header>
+    <h1>G醫t 統計</h1>
+    {{ status(generated, sites, root) }}
+  </header>
+  <p class="stat-hero">監視している URL <strong>{{ '{:,}'.format(stats.monitored) }}</strong> 件{% if stats.paused %} <span class="muted">（ほかに停止中 {{ stats.paused }} 件）</span>{% endif %}</p>
+  <p class="muted">{{ stats.since }} からの更新検知は {{ '{:,}'.format(stats.total) }} 件です。「表示の調整のみ」の更新を含み、各サイトの初回取得は含みません。日付は検知した日（JST）で、今日の分は途中の値です。棒にマウスを重ねると値が出ます。</p>
+
+  <section class="stat">
+    <h2>日別の更新検知件数<small>直近 {{ stats.daily_span }} 日。赤は日曜日。目盛りの日付は月曜日</small></h2>
+    <div class="stat-scroll">{{ stats.daily_chart }}</div>
+    <details><summary>数値を一覧で見る</summary>{{ values(stats.daily) }}</details>
+  </section>
+  <section class="stat">
+    <h2>月別の更新検知件数</h2>
+    <div class="stat-scroll">{{ stats.monthly_chart }}</div>
+    {{ values(stats.monthly) }}
+  </section>
+  <section class="stat">
+    <h2>年別の更新検知件数</h2>
+    <div class="stat-scroll">{{ stats.yearly_chart }}</div>
+    {{ values(stats.yearly) }}
+  </section>
+  <section class="stat">
+    <h2>曜日別の平均<small>1日あたり。記録の初日と今日は除く</small></h2>
+    <div class="stat-scroll">{{ stats.weekday_chart }}</div>
+    {{ values(stats.weekday) }}
+  </section>
+  <section class="stat">
+    <h2>監視している URL 数の推移<small>現在監視している URL を、記録を始めた日で数えた累計</small></h2>
+    <div class="stat-scroll">{{ stats.growth_chart }}</div>
+  </section>
+  {{ footer() }}
+{% endblock %}

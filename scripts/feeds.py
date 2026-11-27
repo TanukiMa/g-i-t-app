@@ -134,11 +134,12 @@ def _lastmod(updates: list):
 
 
 def build_sitemap(base: str, sites: list, months: list, weeks: list, updates: list) -> str:
-    """sitemap.xml: the pages worth finding in a search engine (timeline, site list, About, archive, one history page per site).
+    """sitemap.xml: the pages worth finding in a search engine (timeline, site list, About, archive, statistics, one history page per site).
     Not listed: the diff pages (thousands of near-empty comparison pages), dashboard.html / minimal.html (they only
     forward to the timeline), privacy.html and offline.html. Addresses are the canonical ones (see canonical_url)."""
     entries = [("index.html", _lastmod(updates)), ("sites.html", _lastmod(updates)), ("about.html", None), ("guide.html", None),
-               ("archive/index.html", _lastmod(updates))]
+               ("archive/index.html", _lastmod(updates)),
+               ("stats.html", _lastmod(updates))]
     entries += [(f"archive/{g['key']}.html", _lastmod(g["updates"])) for g in weeks + months]
     entries += [(f"sites/{s['slug']}/{SITE_PAGE}", _lastmod(s["updates"])) for s in sites]
     lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']

@@ -16,12 +16,14 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from canonical import canonical_base, inject_canonical
 from common import (DATA_REPO_URL, FEED_LIMIT_ALL, FEED_LIMIT_SITE, SITE_BASE_URL, SITE_PAGE, SUMMARY_INITIAL,
                     TIMELINE_LIMIT, env_flag)
-from dashboard_text import excerpt, group_by_day, group_periods, hostname, iso_attr, render_markdown, summary_by, to_jst
+from dashboard_text import (JST, excerpt, group_by_day, group_periods, hostname, iso_attr, render_markdown, summary_by,
+                            to_jst)
 from db import fetch_all, get_supabase
 from diff_pages import attach_diff_pages, make_diff_pages
 from feeds import build_atom, build_search_index, build_sitemap, build_status, previous_generated, tag_id
 from provision import config_problems, configured_sites, configured_tag_groups
 from shell import git
+from stats import build_stats
 
 # The timeline used to come in three styles; the other two addresses now forward to it (bookmarks keep working).
 RETIRED_TIMELINES = ("dashboard.html", "minimal.html")
@@ -303,6 +305,12 @@ def render_archive(writer: PageWriter, env: Environment, months: list, weeks: li
             older=months[i + 1] if i + 1 < len(months) else None, **common))
 
 
+def render_stats(writer: PageWriter, env: Environment, configured: list, updates: list, common: dict):
+    """stats.html: update counts per day / month / year / weekday and the number of monitored URLs."""
+    stats = build_stats(configured, updates, datetime.now(JST).date())
+    writer.page("stats.html", env.get_template("stats.html").render(stats=stats, **common))
+
+
 def write_feeds(writer: PageWriter, sites: list, tags: list, updates: list, tag_groups: list, keep_generated: bool):
     """search.json, feeds/status.json and the Atom feeds (all sites, per site, per tag)."""
     base_url = os.environ.get("SITE_BASE_URL", SITE_BASE_URL)
@@ -400,6 +408,7 @@ def main():
     render_static_pages(writer, env, common)
     months, weeks = group_periods(updates)
     render_archive(writer, env, months, weeks, common)
+    render_stats(writer, env, configured, updates, common)
     write_feeds(writer, sites, tags, updates, tag_groups, keep_generated=args.no_push)
     write_sitemap(writer, sites, months, weeks, updates)
 
