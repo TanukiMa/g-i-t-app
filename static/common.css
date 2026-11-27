@@ -75,6 +75,7 @@ h1 .follow-btn { font-size: 0.8em; }
 .period-list li { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: baseline; }
 .period-list .count { margin-left: auto; color: var(--muted); font-size: 0.85em; }
 .section-title.day { margin-top: 1.5rem; }
+.day-count { margin-left: 0.6em; color: var(--fg); font-variant-numeric: tabular-nums; }
 .row-list { list-style: none; margin: 0 0 0.5rem; padding: 0; }
 .row-list .row {
   display: grid; grid-template-columns: 3.2em minmax(6em, 14em) 1fr auto; gap: 0.5rem; align-items: baseline;
@@ -88,6 +89,37 @@ h1 .follow-btn { font-size: 0.8em; }
   .row-list .row { grid-template-columns: 3.2em 1fr; }
   .row-list .row .row-text, .row-list .row .row-link { grid-column: 2; }
 }
+
+/* ---- statistics (stats.html; SVG made by scripts/stats.py) ---- */
+.stat-hero { font-size: 1.05rem; margin: 0 0 0.25rem; }
+.stat-hero strong { font-size: 3rem; line-height: 1.2; margin: 0 0.15em; }
+.stat { margin: 2.25rem 0; }
+.stat h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+.stat h2 small { display: block; font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+/* rtl so that a chart wider than the screen starts at its right end (the newest values and the scale) */
+.stat-scroll { overflow-x: auto; direction: rtl; }
+.stat-scroll svg { display: block; direction: ltr; margin-right: auto; }
+.st-grid { stroke: var(--border); stroke-width: 1; shape-rendering: crispEdges; }
+.st-bar { fill: var(--link); }
+/* Sunday red, the same as the day names of the visual timeline (.gtl-sun) */
+.st-bar.st-sun { fill: #d1242f; }
+@media (prefers-color-scheme: dark) { .st-bar.st-sun { fill: #ff7b72; } }
+.st-line { stroke: var(--link); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.st-hit { fill: transparent; }
+g:hover > .st-hit, rect.st-hit:hover { fill: var(--muted); fill-opacity: 0.12; }
+.st-tick { font: 11px system-ui, sans-serif; fill: var(--muted); }
+.st-value { font: 600 11px system-ui, sans-serif; fill: var(--fg); text-anchor: middle; }
+.st-mid { text-anchor: middle; }
+.st-start { text-anchor: start; }
+.st-end { text-anchor: end; }
+.stat details { margin-top: 0.5rem; font-size: 0.85rem; }
+.stat summary { cursor: pointer; color: var(--link); }
+.stat-list {
+  list-style: none; margin: 0.5rem 0 0; padding: 0; max-width: 60rem; font-size: 0.85rem;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 0.1rem 2rem;
+}
+.stat-list li { display: flex; justify-content: space-between; gap: 0.75rem; border-top: 1px solid var(--border); padding: 0.15rem 0; }
+.stat-list .n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---- About page ---- */
 .prose h2 { font-size: 1.15rem; margin: 2rem 0 0.75rem; }

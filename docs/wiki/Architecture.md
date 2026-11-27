@@ -56,6 +56,7 @@
 | `sites/<slug>/history.html` | サイト別の更新歴（全件） |
 | `sites/<slug>/diff_<hash7>.html` | 差分ページ |
 | `archive/index.html`、`archive/<年>-W<週>.html`、`archive/<年>-<月>.html` | 週別（詳細）・月別（一覧）の過去ログ |
+| `stats.html` | 監視している URL の数と、更新検知件数（日別・月別・年別・曜日別）の SVG グラフ |
 | `feeds/all.xml`、`feeds/<slug>.xml`、`feeds/tag-*.xml` | Atom フィード（すべて／サイト別／分類別） |
 | `about.html` | G醫tについて |
 | `privacy.html` | プライバシーとアクセス解析 |

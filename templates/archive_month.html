@@ -12,11 +12,13 @@
     {% if older %}<a href="{{ older.key }}.html">← {{ older.label }}</a>{% endif %}
     {% if newer %}<a href="{{ newer.key }}.html">{{ newer.label }} →</a>{% endif %}
   </p>
-  <p class="muted">{{ period.count }} 件。要約の全文は週別ページ、または各サイトの更新歴ページにあります。</p>
+  {% set first_count = period.updates|selectattr('summary', 'equalto', initial_summary)|list|length %}
+  <p class="muted">更新 {{ period.count - first_count }} 件{% if first_count %}（ほか初回取得 {{ first_count }} 件）{% endif %}。要約の全文は週別ページ、または各サイトの更新歴ページにあります。</p>
   {{ filter_bar(tags) }}
   <div id="content">
     {% for day, items in days %}
-    <h2 class="section-title day">{{ day }}</h2>
+    {% set n = items|selectattr('summary', 'equalto', initial_summary)|list|length %}
+    <h2 class="section-title day">{{ day }} <span class="day-count">{{ items|length - n }}件{% if n %}（ほか初回取得 {{ n }}件）{% endif %}</span></h2>
     <ul class="row-list">
       {% for item in items %}
       {{ entry_row(item, root) }}
